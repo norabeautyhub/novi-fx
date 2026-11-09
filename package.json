@@ -1,0 +1,21 @@
+{
+  "name": "novi-fx",
+  "version": "0.1.0",
+  "description": "Novi FX - forex/gold/crypto analysis, signals, backtest and paper trading",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "demo": "DATA_MODE=demo node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^18.0.10",
+    "express": "^4.22.3",
+    "lightweight-charts": "^4.2.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

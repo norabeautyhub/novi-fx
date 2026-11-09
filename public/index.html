@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="si">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Novi FX — Signals & Trading</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📈</text></svg>" />
+  <script src="/vendor/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">Novi <b>FX</b></div>
+    <div class="sym-head"><span id="symName">XAUUSD</span> <span id="symPrice" class="mono">—</span> <span id="symChg" class="mono"></span></div>
+    <div id="tfBar" class="tf-bar"></div>
+    <div class="toggles">
+      <label><input type="checkbox" id="tgEma" checked /> EMA</label>
+      <label><input type="checkbox" id="tgBb" /> Bollinger</label>
+    </div>
+    <div id="badges" class="badges"></div>
+  </header>
+
+  <main>
+    <aside class="watch">
+      <div class="panel-title">Watchlist <button id="btnScan" class="sm">Scan</button></div>
+      <div id="watchlist"></div>
+    </aside>
+
+    <section class="center">
+      <div id="chart"></div>
+      <div class="sub-title">RSI (14)</div>
+      <div id="rsiChart"></div>
+      <div class="tabs">
+        <button data-tab="positions" class="active">Positions</button>
+        <button data-tab="history">History</button>
+        <button data-tab="backtest">Backtest</button>
+        <button data-tab="scanner">Scanner</button>
+      </div>
+      <div class="tab-body">
+        <div id="tab-positions" class="tab active"></div>
+        <div id="tab-history" class="tab"></div>
+        <div id="tab-backtest" class="tab">
+          <div class="row">
+            <label>TP (R) <input id="btR" type="number" value="2" step="0.5" min="0.5" /></label>
+            <button id="btnBacktest">Backtest run කරන්න</button>
+            <span class="muted">දැනට තියෙන symbol + timeframe එකේ candles 1000 උඩ</span>
+          </div>
+          <div id="btOut"></div>
+          <div id="btChart"></div>
+        </div>
+        <div id="tab-scanner" class="tab"></div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="card" id="signalCard">
+        <div class="panel-title">Signal <span id="sigTf" class="muted"></span></div>
+        <div id="sigBody" class="muted">Loading…</div>
+        <div id="mtf" class="mtf"></div>
+        <button id="btnExplain" class="wide">🤖 AI analysis (සිංහලෙන්)</button>
+        <div id="aiOut" class="ai-out"></div>
+      </div>
+
+      <div class="card">
+        <div class="panel-title">Demo Order <span class="muted">paper trading</span></div>
+        <div class="acct" id="acct"></div>
+        <div class="grid2">
+          <label>Lots <input id="oLots" type="number" step="0.01" value="0.01" /></label>
+          <label>Risk % <input id="oRisk" type="number" step="0.5" value="1" /></label>
+          <label>Stop Loss <input id="oSL" type="number" step="any" /></label>
+          <label>Take Profit <input id="oTP" type="number" step="any" /></label>
+        </div>
+        <div class="row">
+          <button id="btnUseSig" class="sm ghost">Signal එකෙන් fill කරන්න</button>
+          <button id="btnCalc" class="sm ghost">Lot size calc</button>
+        </div>
+        <div id="calcOut" class="muted small"></div>
+        <div class="grid2">
+          <button id="btnSell" class="sell">SELL</button>
+          <button id="btnBuy" class="buy">BUY</button>
+        </div>
+        <div id="orderMsg" class="small"></div>
+      </div>
+
+      <p class="disclaimer">⚠️ Signals probability එකක් විතරයි — guarantee එකක් නෙවෙයි. Stop loss නැතුව trade කරන්න එපා. ඇත්ත සල්ලි දාන්න කලින් demo එකේ test කරන්න.</p>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
