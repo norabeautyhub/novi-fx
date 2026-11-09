@@ -326,10 +326,42 @@ $('btnSell').onclick = () => placeOrder('SELL');
 
 /* ---------- tabs / nav ---------- */
 function switchTab(name) {
+  if ((name === 'backtest' || name === 'scanner') && document.querySelector('.tab-body').offsetHeight < 330) setPanelH(380);
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + name));
 }
-document.querySelectorAll('.tabs button').forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
+document.querySelectorAll('.tabs button[data-tab]').forEach((b) => (b.onclick = () => switchTab(b.dataset.tab)));
+
+/* ---------- bottom panel: drag to resize + expand button ---------- */
+function setPanelH(h) {
+  const center = document.querySelector('.center');
+  const max = center.clientHeight - 220; // keep at least ~220px for the chart
+  h = Math.max(120, Math.min(h, max));
+  document.documentElement.style.setProperty('--panel-h', h + 'px');
+  store('novi-fx-panel', String(Math.round(h)));
+}
+(function initPanel() {
+  const saved = +store('novi-fx-panel');
+  if (saved) setPanelH(saved);
+  const rz = $('resizer');
+  let startY, startH;
+  const move = (e) => setPanelH(startH + (startY - (e.touches ? e.touches[0].clientY : e.clientY)));
+  const up = () => { rz.classList.remove('drag'); document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); document.removeEventListener('touchmove', move); document.removeEventListener('touchend', up); };
+  const down = (e) => {
+    startY = e.touches ? e.touches[0].clientY : e.clientY;
+    startH = document.querySelector('.tab-body').offsetHeight;
+    rz.classList.add('drag');
+    document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+    document.addEventListener('touchmove', move); document.addEventListener('touchend', up);
+    e.preventDefault();
+  };
+  rz.addEventListener('mousedown', down); rz.addEventListener('touchstart', down);
+  $('btnPanelSize').onclick = () => {
+    const cur = document.querySelector('.tab-body').offsetHeight;
+    const big = document.querySelector('.center').clientHeight - 220;
+    setPanelH(cur < big - 20 ? big : 260);
+  };
+})();
 
 function renderTfBar() {
   $('tfBar').innerHTML = S.cfg.timeframes.map((tf) => `<button class="${tf === S.tf ? 'active' : ''}" data-tf="${tf}">${tf}</button>`).join('');
