@@ -19,8 +19,17 @@ async function getJSON(url) {
 }
 
 async function fromBinance(symbol, tf, limit) {
-  const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${BINANCE_TF[tf]}&limit=${limit}`;
-  const rows = await getJSON(url);
+  // Binance gives max 1000 per call → page backwards with endTime
+  let rows = [], end = null;
+  while (rows.length < limit) {
+    const n = Math.min(1000, limit - rows.length);
+    const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${BINANCE_TF[tf]}&limit=${n}` + (end ? `&endTime=${end}` : '');
+    const page = await getJSON(url);
+    if (!page.length) break;
+    rows = page.concat(rows);
+    end = page[0][0] - 1;
+    if (page.length < n) break;
+  }
   return rows.map((r) => ({
     time: Math.floor(r[0] / 1000),
     open: +r[1], high: +r[2], low: +r[3], close: +r[4], volume: +r[5],
@@ -92,13 +101,13 @@ async function getCandles(symbol, tf = '1h', limit = 500, maxAgeMs) {
   }
 
   const data = inst.provider === 'binance'
-    ? await fromBinance(symbol, tf, Math.min(limit, 1000))
+    ? await fromBinance(symbol, tf, Math.min(limit, 5000))
     : await fromTwelveData(inst, tf, Math.min(limit, 5000));
   cache.set(key, { at: Date.now(), data });
   return data;
 }
 
-function demoLast(symbol) { const d = demoCandles(symbol, '1h', 500); return d[d.length - 1].close; }
+function demoLast(symbol) { const d = demoCandles(symbol, '1h', 2000); return d[d.length - 1].close; }
 
 async function getPrice(symbol) {
   const live = require('./stream').livePrice(symbol);

@@ -7,7 +7,8 @@ const { computeAll } = require('./src/indicators');
 const { liveSignal, signalStatus } = require('./src/signals');
 const { TF_SEC } = require('./src/data');
 const stream = require('./src/stream');
-const { backtest } = require('./src/backtest');
+const { backtest, optimize } = require('./src/backtest');
+const N = 2000; // candles for chart + signals
 const paper = require('./src/paper');
 const ai = require('./src/ai');
 
@@ -82,7 +83,7 @@ stream.bus.on('tick', (t) => {
 
 // Candles + indicators for the chart
 app.get('/api/candles', wrap(async (req, res) => {
-  const candles = await getCandles(sym(req), tfOf(req), 500);
+  const candles = await getCandles(sym(req), tfOf(req), N);
   const ind = computeAll(candles);
   const series = (arr) => arr.map((v, i) => (v == null ? null : { time: candles[i].time, value: v })).filter(Boolean);
   res.json({
@@ -95,8 +96,8 @@ app.get('/api/candles', wrap(async (req, res) => {
 
 app.get('/api/signal', wrap(async (req, res) => {
   const symbol = sym(req), tf = tfOf(req);
-  const candles = await getCandles(symbol, tf, 500);
-  const sig = liveSignal(candles, { digits: INSTRUMENTS[symbol].digits }, TF_SEC[tf]);
+  const candles = await getCandles(symbol, tf, N);
+  const sig = liveSignal(candles, symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits);
   sig.livePrice = await getPrice(symbol);
   sig.status = signalStatus(sig, sig.livePrice, Date.now() / 1000);
   sig.tfSec = TF_SEC[tf];
@@ -108,9 +109,9 @@ async function mtfFor(symbol) {
   const out = {};
   for (const tf of ['15m', '1h', '4h']) {
     try {
-      const s = liveSignal(await getCandles(symbol, tf, 500, 3 * 60_000), { digits: INSTRUMENTS[symbol].digits }, TF_SEC[tf]);
+      const s = liveSignal(await getCandles(symbol, tf, N, 3 * 60_000), symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits);
       const st = signalStatus(s, await getPrice(symbol), Date.now() / 1000);
-      out[tf] = { action: s.action, score: s.score, status: st?.code || null };
+      out[tf] = { action: s.action, status: st?.code || null, profile: s.profile.status };
     } catch (e) { out[tf] = { error: e.message }; }
   }
   return out;
@@ -123,25 +124,34 @@ app.get('/api/scan', wrap(async (req, res) => {
   const results = [];
   for (const s of Object.keys(INSTRUMENTS)) {
     try {
-      const sig = liveSignal(await getCandles(s, tf, 500, 5 * 60_000), { digits: INSTRUMENTS[s].digits }, TF_SEC[tf]);
+      const sig = liveSignal(await getCandles(s, tf, N, 5 * 60_000), s, tf, TF_SEC[tf], INSTRUMENTS[s].digits);
       const price = await getPrice(s);
       const st = signalStatus(sig, price, Date.now() / 1000);
-      results.push({ symbol: s, action: sig.action, score: sig.score, confidence: sig.confidence, price, entry: sig.entry, stopLoss: sig.stopLoss, tp1: sig.tp1, tp2: sig.tp2, zone: sig.zone, status: st?.code || null, live: stream.isLive(s) });
+      results.push({ symbol: s, action: sig.action, profile: sig.profile.status, strategy: sig.profile.strategy, price, entry: sig.entry, stopLoss: sig.stopLoss, tp1: sig.tp1, tp2: sig.tp2, zone: sig.zone, status: st?.code || null, live: stream.isLive(s) });
     } catch (e) { results.push({ symbol: s, error: e.message }); }
   }
-  results.sort((a, b) => Math.abs(b.score || 0) - Math.abs(a.score || 0));
+  const rank = (r) => (['BUY', 'SELL'].includes(r.action) ? 0 : 2) + (r.profile === 'verified' ? 0 : r.profile === 'weak' ? 0.5 : 1);
+  results.sort((a, b) => rank(a) - rank(b));
   res.json(results);
 }));
 
 app.get('/api/backtest', wrap(async (req, res) => {
-  const candles = await getCandles(sym(req), tfOf(req), 1000);
-  res.json(backtest(candles, { tpR: req.query.tpR ? +req.query.tpR : 2 }));
+  const symbol = sym(req), tf = tfOf(req);
+  const candles = await getCandles(symbol, tf, 5000, 10 * 60_000);
+  res.json(backtest(candles, symbol, tf));
+}));
+
+// Walk-forward optimizer (train on first 60%, judge on last 40%) — saved to data/profiles.json
+app.post('/api/optimize', wrap(async (req, res) => {
+  const symbol = sym(req), tf = tfOf(req);
+  const candles = await getCandles(symbol, tf, 5000, 10 * 60_000);
+  res.json(optimize(candles, symbol, tf));
 }));
 
 app.post('/api/explain', wrap(async (req, res) => {
   const symbol = sym(req), tf = tfOf(req);
-  const candles = await getCandles(symbol, tf, 500);
-  const signal = liveSignal(candles, { digits: INSTRUMENTS[symbol].digits }, TF_SEC[tf]);
+  const candles = await getCandles(symbol, tf, N);
+  const signal = liveSignal(candles, symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits);
   signal.livePrice = await getPrice(symbol);
   signal.status = signalStatus(signal, signal.livePrice, Date.now() / 1000);
   const mtf = await mtfFor(symbol);

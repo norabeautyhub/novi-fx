@@ -1,137 +1,95 @@
-// Rule-based signal engine.
-// evaluateAt() only looks at data up to index i, so the same function is used
-// for the live signal and for the backtest (no look-ahead).
+// Live signal from the researched strategies (closed candles only).
+// Looks back `validBars` closed candles for the most recent BUY/SELL and checks
+// whether SL / TP1 was already touched after it.
 
-const { computeAll } = require('./indicators');
+const S = require('./strategy');
+const { getProfile } = require('./profiles');
 
-const DEFAULTS = {
-  threshold: 4,      // |score| needed for BUY/SELL
-  atrStopMult: 1.5,  // stop distance in ATRs (if no good swing level)
-  tp1R: 1.5,         // take profit 1 in R multiples
-  tp2R: 3,           // take profit 2 in R multiples
-  zoneFwd: 0.25,     // entry zone: ATRs in the trade direction (beyond = "missed, don't chase")
-  zoneBack: 0.3,     // entry zone: ATRs against the trade direction
-  validBars: 3,      // signal stays valid for this many candles after it closes
-};
+const VALID_BARS = 3;
+const ZONE_FWD = 0.25, ZONE_BACK = 0.3; // ATRs
 
-const MAX_SCORE = 8;
+const TREND_TXT = { 1: 'UP ▲', '-1': 'DOWN ▼', 0: 'පැහැදිලි නැහැ' };
 
-function nearestLevels(swingsList, i, price) {
-  // Confirmed swings only (confirmedAt <= i), most recent 30 bars-worth of levels
-  const highs = swingsList.highs.filter((s) => s.confirmedAt <= i).slice(-8).map((s) => s.price);
-  const lows = swingsList.lows.filter((s) => s.confirmedAt <= i).slice(-8).map((s) => s.price);
-  const all = [...highs, ...lows];
-  const above = all.filter((p) => p > price).sort((a, b) => a - b);
-  const below = all.filter((p) => p < price).sort((a, b) => b - a);
-  return {
-    resistance: above[0] ?? null,
-    support: below[0] ?? null,
-    lastSwingLow: lows.length ? lows[lows.length - 1] : null,
-    lastSwingHigh: highs.length ? highs[highs.length - 1] : null,
-  };
+function checklist(F, i, prof, f) {
+  const p = prof.params, out = [];
+  const htf = F[p.htf || 'htf4'][i];
+  const htfName = (p.htf || 'htf4') === 'htfD' ? 'Daily' : '4H';
+  out.push({ ok: htf !== 0, text: `${htfName} trend: ${TREND_TXT[htf]}` });
+  if (prof.strategy === 'pullback') {
+    const up = F.ema20[i] > F.ema50[i] && F.ema50[i] > F.ema200[i];
+    const dn = F.ema20[i] < F.ema50[i] && F.ema50[i] < F.ema200[i];
+    out.push({ ok: (up && htf > 0) || (dn && htf < 0), text: `EMA 20/50/200 පිළිවෙළ: ${up ? 'UP' : dn ? 'DOWN' : 'පටලැවිලා'}${(up && htf < 0) || (dn && htf > 0) ? ' (ලොකු trend එකට විරුද්ධයි)' : ''}` });
+    out.push({ ok: F.adx[i] > p.adx, text: `Trend ශක්තිය ADX ${F.adx[i].toFixed(0)} (අවම ${p.adx})` });
+    out.push({ ok: null, text: `RSI ${F.rsi[i].toFixed(0)} — 50 cross එකක් එනකම් (entry trigger)` });
+    out.push({ ok: null, text: `EMA20 ${f(F.ema20[i])} — මිල ඒකට pullback වෙලා ආයෙත් හැරෙන්න ඕන` });
+  } else {
+    const hi = Math.max(...F.h.slice(i - p.n, i)), lo = Math.min(...F.l.slice(i - p.n, i));
+    out.push({ ok: F.adx[i] > (p.adx || 0), text: `Trend ශක්තිය ADX ${F.adx[i].toFixed(0)}${p.adx ? ` (අවම ${p.adx})` : ''}` });
+    out.push({ ok: null, text: `Candles ${p.n} high ${f(hi)} / low ${f(lo)} — trend පැත්තට break එකක් එනකම්` });
+    if (p.hours) out.push({ ok: p.hours.includes(F.hour[i]), text: 'London/New York session (UTC 07–17) ඇතුළේ විතරයි' });
+  }
+  return out;
 }
 
-function evaluateAt(candles, ind, i, opts = {}) {
-  const o = { ...DEFAULTS, ...opts };
-  const f = (v) => (o.digits != null ? (+v).toFixed(o.digits) : +(+v).toPrecision(8));
-  const c = candles[i];
-  const price = c.close;
-  const e20 = ind.ema20[i], e50 = ind.ema50[i], e200 = ind.ema200[i];
-  const r = ind.rsi[i], rPrev = ind.rsi[i - 1];
-  const h = ind.macd.hist[i], hPrev = ind.macd.hist[i - 1];
-  const a = ind.atr[i];
+function liveSignal(candles, symbol, tf, tfSec, digits) {
+  const prof = getProfile(symbol, tf);
+  const f = (v) => (digits != null ? (+v).toFixed(digits) : String(+(+v).toPrecision(8)));
+  const L = candles.length - 2; // last CLOSED candle
+  const base = { profile: { status: prof.status, strategy: prof.strategy, params: prof.params, exits: prof.exits, research: prof.research, optimizer: prof.optimizer, source: prof.source, note: prof.note }, closedCandleTime: candles[L]?.time, price: candles[L]?.close };
 
-  if ([e20, e50, e200, r, rPrev, h, hPrev, a].some((v) => v == null)) {
-    return { action: 'WAIT', score: 0, confidence: 0, reasons: ['දත්ත මදි (candles 200+ ඕන)'], price };
+  if (candles.length < 260) return { ...base, action: 'WAIT', score: 0, confidence: 0, reasons: [{ ok: false, text: 'Candles මදි (260+ ඕන)' }] };
+  const F = S.features(candles);
+  if (prof.status === 'disabled' || prof.status === 'noedge') {
+    return { ...base, action: 'OFF', score: 0, confidence: 0, reasons: [] };
+  }
+  const { sig, sl } = S.STRATEGIES[prof.strategy](F, prof.params);
+
+  let k = -1;
+  for (let j = L; j >= Math.max(0, L - VALID_BARS + 1); j--) if (sig[j]) { k = j; break; }
+  const reasons = checklist(F, L, prof, f);
+
+  if (k < 0) {
+    return { ...base, action: 'WAIT', score: 0, confidence: 0, atr: F.atr[L], rsi: F.rsi[L], adx: F.adx[L], reasons };
   }
 
-  let score = 0;
-  const reasons = [];
-  const add = (pts, text) => { score += pts; reasons.push({ pts, text }); };
-
-  // 1. Big trend (EMA 200) — ±2
-  if (price > e200 && e50 > e200) add(2, 'ලොකු trend එක UP (මිල සහ EMA50, EMA200 ට උඩින්)');
-  else if (price < e200 && e50 < e200) add(-2, 'ලොකු trend එක DOWN (මිල සහ EMA50, EMA200 ට යටින්)');
-  else reasons.push({ pts: 0, text: 'ලොකු trend එක පැහැදිලි නැහැ (EMA200 වටේ)' });
-
-  // 2. Short trend (EMA20 vs EMA50) — ±1
-  if (e20 > e50) add(1, 'කෙටි trend එක UP (EMA20 > EMA50)');
-  else add(-1, 'කෙටි trend එක DOWN (EMA20 < EMA50)');
-
-  // 3. Momentum (MACD histogram) — ±1, extra ±1 on fresh cross
-  if (h > 0) add(1, 'MACD momentum එක buy පැත්තට');
-  else add(-1, 'MACD momentum එක sell පැත්තට');
-  if (h > 0 && hPrev <= 0) add(1, 'MACD අලුතින් bullish cross වුණා');
-  if (h < 0 && hPrev >= 0) add(-1, 'MACD අලුතින් bearish cross වුණා');
-
-  // 4. RSI — healthy zone in trend direction, penalty at extremes
-  if (r > 70) add(-1, `RSI ${r.toFixed(0)} — overbought, buy කරන්න අවදානම්`);
-  else if (r < 30) add(1, `RSI ${r.toFixed(0)} — oversold, sell කරන්න අවදානම්`);
-  else if (r > 50 && r > rPrev) add(1, `RSI ${r.toFixed(0)} — 50 ට උඩ සහ නගිනවා`);
-  else if (r < 50 && r < rPrev) add(-1, `RSI ${r.toFixed(0)} — 50 ට යට සහ බහිනවා`);
-
-  // 5. Pullback entry: price near EMA20/EMA50 (within 0.6 ATR) in trend direction
-  const nearEma = Math.min(Math.abs(c.low - e20), Math.abs(c.low - e50), Math.abs(c.high - e20), Math.abs(c.high - e50)) < 0.6 * a;
-  if (nearEma && score > 0 && price > e20) add(1, 'EMA එකට pullback එකක් වෙලා ආයෙත් උඩට — හොඳ buy entry zone');
-  if (nearEma && score < 0 && price < e20) add(-1, 'EMA එකට pullback එකක් වෙලා ආයෙත් පහළට — හොඳ sell entry zone');
-
-  // 6. Support/resistance room
-  const lv = nearestLevels(ind.swings, i, price);
-  if (score > 0 && lv.resistance && lv.resistance - price < 1 * a) add(-1, `ළඟින්ම resistance එකක් (${f(lv.resistance)}) — buy කරන්න ඉඩ අඩුයි`);
-  if (score < 0 && lv.support && price - lv.support < 1 * a) add(1, `ළඟින්ම support එකක් (${f(lv.support)}) — sell කරන්න ඉඩ අඩුයි`);
-
-  let action = 'WAIT';
-  if (score >= o.threshold) action = 'BUY';
-  else if (score <= -o.threshold) action = 'SELL';
-
-  const result = {
-    action,
-    score,
-    confidence: Math.round((Math.min(Math.abs(score), MAX_SCORE) / MAX_SCORE) * 100),
-    price,
-    time: c.time,
-    atr: a,
-    rsi: r,
-    levels: lv,
-    reasons,
+  const d = sig[k], a = F.atr[k], entry = F.c[k], risk = sl[k];
+  const tpR = prof.exits.tpR;
+  const res = {
+    ...base,
+    action: d === 1 ? 'BUY' : 'SELL',
+    score: d, confidence: null,
+    price: F.c[L], atr: a, rsi: F.rsi[L], adx: F.adx[L],
+    entry, stopLoss: entry - d * risk,
+    tp1: entry + d * 1.5 * risk,     // half-way mark (optional partial close)
+    tp2: entry + d * tpR * risk,     // main target used in research/backtest
+    riskReward: tpR,
+    zone: d === 1 ? [entry - ZONE_BACK * a, entry + ZONE_FWD * a] : [entry - ZONE_FWD * a, entry + ZONE_BACK * a],
+    signalTime: candles[k].time + tfSec,
+    expiresAt: candles[k].time + (VALID_BARS + 1) * tfSec,
+    barsAgo: L - k,
+    reasons: [
+      { ok: true, text: prof.strategy === 'pullback'
+        ? `${d === 1 ? 'Up' : 'Down'} trend එකේ EMA20 ට pullback එකක් වෙලා RSI 50 ${d === 1 ? 'උඩට' : 'යටට'} cross වුණා`
+        : `Candles ${prof.params.n} ක ${d === 1 ? 'high එක උඩින්' : 'low එකට යටින්'} break වුණා (trend පැත්තට)` },
+      ...checklist(F, k, prof, f),
+    ],
   };
-
-  if (action !== 'WAIT') {
-    const dir = action === 'BUY' ? 1 : -1;
-    let stop = price - dir * o.atrStopMult * a;
-    // Prefer a stop just beyond the last swing if it is between 1 and 3 ATR away
-    const swing = dir === 1 ? lv.lastSwingLow : lv.lastSwingHigh;
-    if (swing != null) {
-      const buffered = swing - dir * 0.2 * a;
-      const dist = dir * (price - buffered);
-      if (dist >= 1 * a && dist <= 3 * a) stop = buffered;
-    }
-    const risk = Math.abs(price - stop);
-    result.entry = price;
-    result.stopLoss = stop;
-    result.tp1 = price + dir * o.tp1R * risk;
-    result.tp2 = price + dir * o.tp2R * risk;
-    result.riskReward = o.tp2R;
-    result.zone = dir === 1
-      ? [price - o.zoneBack * a, price + o.zoneFwd * a]
-      : [price - o.zoneFwd * a, price + o.zoneBack * a];
+  for (let j = k + 1; j < candles.length; j++) {
+    const c = candles[j];
+    if (d === 1 ? c.low <= res.stopLoss : c.high >= res.stopLoss) { res.outcome = 'SL'; break; }
+    if (d === 1 ? c.high >= res.tp1 : c.low <= res.tp1) { res.outcome = 'TP1'; break; }
   }
-  return result;
+  return res;
 }
 
-// Where is the live price relative to a signal?
-//  ACTIVE  – inside the entry zone → entry ගන්න පුළුවන්
-//  MISSED  – ran past the zone toward TP → chase කරන්න එපා
-//  CAUTION – below/above the zone but stop not hit → SL ළඟයි
-//  INVALID – stop loss hit, DONE – TP1 hit, EXPIRED – too many candles passed
-// (same logic is copied in public/app.js for live updates)
+// Where is the live price relative to a signal? (copied in public/app.js)
 function signalStatus(sig, price, nowSec) {
-  if (!sig || sig.action === 'WAIT' || price == null) return null;
+  if (!sig || !['BUY', 'SELL'].includes(sig.action) || price == null) return null;
   const dir = sig.action === 'BUY' ? 1 : -1;
   if (sig.outcome === 'SL') return { code: 'INVALID', text: 'Stop loss එක වැදුනා — signal එක cancel' };
-  if (sig.outcome === 'TP1') return { code: 'DONE', text: 'TP1 දක්වා ගිහින් ඉවරයි — අලුතෙන් entry ගන්න එපා' };
+  if (sig.outcome === 'TP1') return { code: 'DONE', text: 'මිල 1.5R දක්වා ගිහින් — දැන් entry ගන්න පරක්කුයි' };
   if (dir * (price - sig.stopLoss) <= 0) return { code: 'INVALID', text: 'මිල SL එක පහු කළා — signal එක cancel' };
-  if (dir * (price - sig.tp1) >= 0) return { code: 'DONE', text: 'TP1 දක්වා ගිහින් ඉවරයි — අලුතෙන් entry ගන්න එපා' };
+  if (dir * (price - sig.tp1) >= 0) return { code: 'DONE', text: 'මිල 1.5R දක්වා ගිහින් — දැන් entry ගන්න පරක්කුයි' };
   if (nowSec > sig.expiresAt) return { code: 'EXPIRED', text: 'Signal එක පරණයි (expired)' };
   const [lo, hi] = sig.zone;
   if (price >= lo && price <= hi) return { code: 'ACTIVE', text: 'මිල entry zone එක ඇතුළේ — entry ගන්න පුළුවන්' };
@@ -139,32 +97,4 @@ function signalStatus(sig, price, nowSec) {
   return { code: 'CAUTION', text: 'මිල zone එකට එහා පැත්තේ, SL එකට ළඟයි — ප්‍රවේශමෙන්' };
 }
 
-// Signal from CLOSED candles only (the last candle is still forming, so it is ignored).
-// Looks back `validBars` closed candles for the most recent BUY/SELL and checks
-// whether SL / TP1 was already touched after it.
-function liveSignal(candles, opts = {}, tfSec = 3600) {
-  const o = { ...DEFAULTS, ...opts };
-  const ind = computeAll(candles);
-  const L = candles.length - 2; // last closed candle
-  let found = null, k = L;
-  for (; k >= Math.max(0, L - o.validBars + 1); k--) {
-    const s = evaluateAt(candles, ind, k, o);
-    if (s.action !== 'WAIT') { found = s; break; }
-  }
-  const sig = found || evaluateAt(candles, ind, L, o);
-  sig.closedCandleTime = candles[L]?.time;
-  if (!found) return sig;
-
-  const dir = sig.action === 'BUY' ? 1 : -1;
-  sig.signalTime = candles[k].time + tfSec;               // when that candle closed
-  sig.expiresAt = candles[k].time + (o.validBars + 1) * tfSec;
-  sig.barsAgo = L - k;
-  for (let j = k + 1; j < candles.length; j++) {
-    const c = candles[j];
-    if (dir === 1 ? c.low <= sig.stopLoss : c.high >= sig.stopLoss) { sig.outcome = 'SL'; break; }
-    if (dir === 1 ? c.high >= sig.tp1 : c.low <= sig.tp1) { sig.outcome = 'TP1'; break; }
-  }
-  return sig;
-}
-
-module.exports = { evaluateAt, liveSignal, signalStatus, DEFAULTS, MAX_SCORE };
+module.exports = { liveSignal, signalStatus };

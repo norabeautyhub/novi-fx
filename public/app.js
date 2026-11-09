@@ -113,12 +113,12 @@ function onLiveTick(p, tSec) {
 
 // same logic as signalStatus() in src/signals.js
 function signalStatus(sig, price, nowSec) {
-  if (!sig || sig.action === 'WAIT' || price == null) return null;
+  if (!sig || !['BUY', 'SELL'].includes(sig.action) || price == null) return null;
   const dir = sig.action === 'BUY' ? 1 : -1;
   if (sig.outcome === 'SL') return { code: 'INVALID', text: 'Stop loss එක වැදුනා — signal එක cancel' };
-  if (sig.outcome === 'TP1') return { code: 'DONE', text: 'TP1 දක්වා ගිහින් ඉවරයි — අලුතෙන් entry ගන්න එපා' };
+  if (sig.outcome === 'TP1') return { code: 'DONE', text: 'මිල 1.5R දක්වා ගිහින් — දැන් entry ගන්න පරක්කුයි' };
   if (dir * (price - sig.stopLoss) <= 0) return { code: 'INVALID', text: 'මිල SL එක පහු කළා — signal එක cancel' };
-  if (dir * (price - sig.tp1) >= 0) return { code: 'DONE', text: 'TP1 දක්වා ගිහින් ඉවරයි — අලුතෙන් entry ගන්න එපා' };
+  if (dir * (price - sig.tp1) >= 0) return { code: 'DONE', text: 'මිල 1.5R දක්වා ගිහින් — දැන් entry ගන්න පරක්කුයි' };
   if (nowSec > sig.expiresAt) return { code: 'EXPIRED', text: 'Signal එක පරණයි (expired)' };
   const [lo, hi] = sig.zone;
   if (price >= lo && price <= hi) return { code: 'ACTIVE', text: 'මිල entry zone එක ඇතුළේ — entry ගන්න පුළුවන්' };
@@ -139,18 +139,39 @@ function renderStatus() {
   box.innerHTML = `<b>${st.code}</b> · ${st.text}${st.code === 'ACTIVE' && left != null ? `<br><span class="small">තව විනාඩි ${left} ක් valid</span>` : ''}`;
 }
 
+/* ---------- strategy profile badges ---------- */
+const PROFILE = {
+  verified: { cls: 'ok', label: '✅ Verified', text: 'ඇත්ත data එකේ test කරලා ලාභ බව තහවුරුයි' },
+  weak: { cls: 'warn', label: '⚠️ Weak', text: 'ලාභය පොඩියි — ප්‍රවේශමෙන්' },
+  unverified: { cls: '', label: '❔ Unverified', text: 'තාම test කරලා නැහැ — Optimizer run කරන්න' },
+  noedge: { cls: 'bad', label: '⛔ No edge', text: 'Optimizer එකට අනුව ලාභ නැහැ — signals off' },
+  disabled: { cls: 'bad', label: '⛔ Disabled', text: 'Research එකට අනුව ලාභ නැහැ — signals off' },
+};
+const STRAT_NAME = { pullback: 'Trend Pullback', breakout: 'Trend Breakout' };
+const profBadge = (st) => `<span class="badge ${PROFILE[st]?.cls || ''}">${PROFILE[st]?.label || st}</span>`;
+
+function profileLine(p) {
+  const rs = p.research, op = p.optimizer;
+  let html = `<div class="prof">${profBadge(p.status)} <b>${STRAT_NAME[p.strategy] || p.strategy}</b> · Target ${p.exits?.tpR}R</div>`;
+  if (p.source === 'optimizer' && op) html += `<div class="small muted">ඔයාගේ data (${op.date}): test කොටසේ trades ${op.test.trades}, PF ${op.test.profitFactor}, Net ${op.test.netR}R</div>`;
+  else if (rs && rs.pf) html += `<div class="small muted">Research: ${rs.data} · trades ${rs.trades} · win ${rs.winRate}% · PF ${rs.pf} · ලාභ අවුරුදු ${rs.posYears}</div>`;
+  else if (rs && rs.note) html += `<div class="small muted">Research: ${rs.data} — ${rs.note}</div>`;
+  if (p.note && p.status !== 'verified') html += `<div class="small" style="color:var(--warn)">${p.note}</div>`;
+  return html;
+}
+
 /* ---------- signal ---------- */
 function drawSignalLines(sig) {
   S.priceLines.forEach((l) => candleS.removePriceLine(l));
   S.priceLines = [];
-  if (!sig || sig.action === 'WAIT') return;
+  if (!sig || !['BUY', 'SELL'].includes(sig.action)) return;
   const add = (price, color, title) => S.priceLines.push(candleS.createPriceLine({ price, color, title, lineWidth: 1, lineStyle: 2, axisLabelVisible: true }));
   add(sig.zone[0], 'rgba(59,130,246,.5)', 'Zone');
   add(sig.zone[1], 'rgba(59,130,246,.5)', 'Zone');
   add(sig.entry, '#3b82f6', 'Entry');
   add(sig.stopLoss, '#ef4444', 'SL');
-  add(sig.tp1, '#22c55e', 'TP1');
-  add(sig.tp2, '#22c55e', 'TP2');
+  add(sig.tp1, 'rgba(34,197,94,.6)', '1.5R');
+  add(sig.tp2, '#22c55e', 'Target');
 }
 
 async function loadSignal() {
@@ -158,26 +179,28 @@ async function loadSignal() {
   if (sig.livePrice != null && S.prices[S.symbol] == null) S.prices[S.symbol] = sig.livePrice;
   S.signal = sig;
   $('sigTf').textContent = `${S.symbol} · ${S.tf}`;
-  const reasons = sig.reasons.map((r) => {
-    const t = typeof r === 'string' ? { pts: 0, text: r } : r;
-    const c = t.pts > 0 ? 'p' : t.pts < 0 ? 'm' : 'z';
-    return `<li class="${c}">${t.pts > 0 ? '▲' : t.pts < 0 ? '▼' : '•'} ${t.text}</li>`;
+  const reasons = (sig.reasons || []).map((r) => {
+    const c = r.ok === true ? 'p' : r.ok === false ? 'm' : 'z';
+    return `<li class="${c}">${r.ok === true ? '✓' : r.ok === false ? '✗' : '•'} ${r.text}</li>`;
   }).join('');
+  const isTrade = ['BUY', 'SELL'].includes(sig.action);
   const ago = sig.barsAgo ? `${sig.barsAgo} candle${sig.barsAgo > 1 ? 's' : ''} කලින්` : 'අන්තිම close වුණු candle එකේ';
-  const lv = sig.action !== 'WAIT' ? `
+  const lv = isTrade ? `
     <div id="sigStatus" class="status"></div>
     <div class="small muted" style="margin:4px 0">Signal එක ආවේ ${ago} (${dt(sig.signalTime * 1000)})</div>
     <div class="levels mono">
       <span>Entry zone</span><span>${fmt(sig.zone[0])} – ${fmt(sig.zone[1])}</span>
       <span>Entry</span><span>${fmt(sig.entry)}</span>
       <span>Stop Loss</span><span class="neg">${fmt(sig.stopLoss)}</span>
-      <span>TP1 (1.5R)</span><span class="pos">${fmt(sig.tp1)}</span>
-      <span>TP2 (${sig.riskReward}R)</span><span class="pos">${fmt(sig.tp2)}</span>
-    </div>` : `<div class="muted small" style="margin-bottom:8px">Support ${fmt(sig.levels?.support)} · Resistance ${fmt(sig.levels?.resistance)}</div>`;
+      <span>1.5R (partial)</span><span class="pos">${fmt(sig.tp1)}</span>
+      <span>Target (${sig.riskReward}R)</span><span class="pos">${fmt(sig.tp2)}</span>
+    </div>` : '';
+  const head = sig.action === 'OFF' ? 'OFF' : sig.action;
+  const sub = sig.action === 'WAIT' ? '<div class="small muted">Setup එක තාම සම්පූර්ණ නැහැ — පහළ checklist එක බලන්න</div>'
+    : sig.action === 'OFF' ? '<div class="small muted">මේ symbol/timeframe එකේ signals දෙන්නේ නැහැ</div>' : '';
   $('sigBody').innerHTML = `
-    <div class="sig-action ${sig.action}">${sig.action}</div>
-    <div class="small muted">Score ${sig.score > 0 ? '+' : ''}${sig.score} · Confidence ${sig.confidence}%</div>
-    <div class="conf"><div style="width:${sig.confidence}%"></div></div>
+    ${profileLine(sig.profile)}
+    <div class="sig-action ${sig.action}">${head}</div>${sub}
     ${lv}<ul class="reasons">${reasons}</ul>
     <div class="small muted">Close වුණු candles විතරක් බලලා හදපු signal එකක් — candle එක මැද්දේ වෙනස් වෙන්නේ නැහැ.</div>`;
   drawSignalLines(sig);
@@ -188,7 +211,7 @@ async function loadMtf() {
   try {
     const m = await api(`/api/mtf?symbol=${S.symbol}`);
     $('mtf').innerHTML = Object.entries(m).map(([tf, v]) =>
-      `<div>${tf}<br><span class="pill ${v.action || 'WAIT'}">${v.action || 'ERR'}</span>${v.status ? `<br><span class="muted">${v.status}</span>` : ''}</div>`).join('');
+      `<div>${tf}<br><span class="pill ${v.action || 'WAIT'}">${v.action || 'ERR'}</span>${v.status ? `<br><span class="muted">${v.status}</span>` : ''}${v.profile ? `<br><span class="muted">${(PROFILE[v.profile]?.label || '').split(' ')[0]}</span>` : ''}</div>`).join('');
   } catch { $('mtf').innerHTML = ''; }
 }
 
@@ -221,41 +244,78 @@ async function runScan() {
     const rows = await api(`/api/scan?tf=${S.tf}`);
     S.scan = Object.fromEntries(rows.map((r) => [r.symbol, r]));
     renderWatchlist();
-    $('tab-scanner').innerHTML = `<table><tr><th>Symbol</th><th>Signal</th><th>Status</th><th>Score</th><th>Conf</th><th>Price</th><th>Entry</th><th>SL</th><th>TP1</th><th>TP2</th></tr>
-      ${rows.map((r) => r.error ? `<tr><td>${r.symbol}</td><td colspan="9" class="muted">${r.error}</td></tr>` :
-        `<tr data-s="${r.symbol}" style="cursor:pointer"><td>${r.symbol}</td><td><span class="pill ${r.action}">${r.action}</span></td><td class="small">${r.status || ''}</td><td>${r.score}</td><td>${r.confidence}%</td>
-        <td class="mono">${fmt(r.price, r.symbol)}</td><td class="mono">${fmt(r.entry, r.symbol)}</td><td class="mono">${fmt(r.stopLoss, r.symbol)}</td><td class="mono">${fmt(r.tp1, r.symbol)}</td><td class="mono">${fmt(r.tp2, r.symbol)}</td></tr>`).join('')}
-      </table><p class="muted small">Timeframe: ${S.tf}. Row එක click කරලා chart එක බලන්න.</p>`;
+    const onlyV = store('novi-fx-onlyv') !== '0';
+    const shown = rows.filter((r) => !onlyV || r.error || ['verified', 'weak'].includes(r.profile));
+    $('tab-scanner').innerHTML = `<div class="row small"><label><input type="checkbox" id="onlyV" ${onlyV ? 'checked' : ''} style="width:auto"> Verified / Weak විතරක් පෙන්නන්න</label><span class="muted">Timeframe: ${S.tf}</span></div>
+      <table><tr><th>Symbol</th><th>Strategy</th><th>Signal</th><th>Status</th><th>Price</th><th>Entry</th><th>SL</th><th>Target</th></tr>
+      ${shown.map((r) => r.error ? `<tr><td>${r.symbol}</td><td colspan="7" class="muted">${r.error}</td></tr>` :
+        `<tr data-s="${r.symbol}" style="cursor:pointer"><td>${r.symbol}</td><td>${profBadge(r.profile)}</td><td><span class="pill ${r.action}">${r.action}</span></td><td class="small">${r.status || ''}</td>
+        <td class="mono">${fmt(r.price, r.symbol)}</td><td class="mono">${fmt(r.entry, r.symbol)}</td><td class="mono">${fmt(r.stopLoss, r.symbol)}</td><td class="mono">${fmt(r.tp2, r.symbol)}</td></tr>`).join('')}
+      </table>${shown.length ? '' : '<p class="muted small">මේ timeframe එකේ verified symbols නැහැ. 1h හෝ 4h බලන්න, නැත්නම් Optimizer run කරන්න.</p>'}
+      <p class="muted small">Row එක click කරලා chart එක බලන්න.</p>`;
+    $('onlyV').onchange = (e) => { store('novi-fx-onlyv', e.target.checked ? '1' : '0'); runScan(); };
     document.querySelectorAll('#tab-scanner tr[data-s]').forEach((el) => (el.onclick = () => selectSymbol(el.dataset.s)));
   } catch (e) { $('tab-scanner').innerHTML = `<span class="neg">${e.message}</span>`; }
   $('btnScan').disabled = false;
 }
 $('btnScan').onclick = () => { switchTab('scanner'); runScan(); };
 
-/* ---------- backtest ---------- */
+/* ---------- backtest + optimizer ---------- */
 let btChart, btLine;
+const statBoxes = (s) => `<div class="stats">
+  <div>Trades<b>${s.trades}</b></div><div>Win rate<b>${s.winRate}%</b></div>
+  <div>Net (R)<b class="${cls(s.netR)}">${s.netR}</b></div><div>Profit factor<b>${s.profitFactor ?? '—'}</b></div>
+  <div>Max DD (R)<b class="neg">${s.maxDrawdownR}</b></div><div>Break-even WR<b>${s.breakEvenWinRate}%</b></div>
+  <div>Wins<b class="pos">${s.wins}</b></div><div>Losses<b class="neg">${s.losses}</b></div></div>`;
+const day = (t) => new Date(t * 1000).toISOString().slice(0, 10);
+
 $('btnBacktest').onclick = async () => {
-  $('btOut').innerHTML = '<span class="muted">Backtest කරනවා…</span>';
+  $('btOut').innerHTML = '<span class="muted">Backtest කරනවා… (candles 5000ක් ගන්නවා)</span>';
   try {
-    const r = await api(`/api/backtest?symbol=${S.symbol}&tf=${S.tf}&tpR=${$('btR').value}`);
-    const s = r.stats;
-    const verdict = s.trades < 20 ? 'Trades 20කට වඩා අඩුයි — results විශ්වාස කරන්න මදි.'
-      : s.netR > 0 && s.profitFactor > 1.2 ? '✅ මේ data එකේ strategy එක profitable. (අනාගතයේත් එහෙමමයි කියලා guarantee නැහැ.)'
-      : '❌ මේ symbol/timeframe එකේ strategy එක profitable නැහැ — මේකේ signals පාවිච්චි කරන්න එපා.';
-    $('btOut').innerHTML = `<div class="stats">
-      <div>Trades<b>${s.trades}</b></div><div>Win rate<b>${s.winRate}%</b></div>
-      <div>Net (R)<b class="${cls(s.netR)}">${s.netR}</b></div><div>Profit factor<b>${s.profitFactor ?? '—'}</b></div>
-      <div>Max DD (R)<b class="neg">${s.maxDrawdownR}</b></div><div>Break-even WR<b>${s.breakEvenWinRate}%</b></div>
-      <div>Wins<b class="pos">${s.wins}</b></div><div>Losses<b class="neg">${s.losses}</b></div></div>
-      <p class="small">${verdict} <span class="muted">1R = එක trade එකක risk කරන මුදල. උදා: $100 risk කරනවා නම් Net ${s.netR}R = $${(s.netR * 100).toFixed(0)}.</span></p>`;
+    const r = await api(`/api/backtest?symbol=${S.symbol}&tf=${S.tf}`);
+    const s = r.stats, p = r.profile;
+    const verdict = s.trades < 20 ? '⚠️ Trades 20කට අඩුයි — මේ කාලයේ results විශ්වාස කරන්න මදි.'
+      : s.netR > 0 && s.profitFactor >= 1.15 ? '✅ මේ කාලයේ profitable. (අනාගතයේත් එහෙමමයි කියලා guarantee නැහැ.)'
+      : s.netR > 0 ? '⚠️ පොඩි ලාභයක් විතරයි.' : '❌ මේ කාලයේ පාඩුයි.';
+    $('btOut').innerHTML = `${profileLine(p)}
+      <p class="small muted">${day(s.from)} → ${day(s.to)} · Trading cost එක trade එකකට ${s.cost} (spread + commission) අඩු කරලා තියෙන්නේ</p>
+      ${statBoxes(s)}
+      <p class="small">${verdict} <span class="muted">1R = එක trade එකක risk කරන මුදල. උදා: $10 risk කරනවා නම් Net ${s.netR}R = $${(s.netR * 10).toFixed(0)}.</span></p>`;
     if (!btChart) {
       btChart = LightweightCharts.createChart($('btChart'), { ...chartOpts, autoSize: true });
       btLine = btChart.addLineSeries({ color: '#3b82f6', lineWidth: 2 });
     }
     const seen = new Set();
-    btLine.setData(r.curve.filter((p) => !seen.has(p.time) && seen.add(p.time)));
+    btLine.setData(r.curve.filter((pt) => !seen.has(pt.time) && seen.add(pt.time)));
     btChart.timeScale().fitContent();
   } catch (e) { $('btOut').innerHTML = `<span class="neg">${e.message}</span>`; }
+};
+
+const paramText = (st, p, ex) => st === 'pullback'
+  ? `Pullback · ADX>${p.adx} · ${p.htf === 'htfD' ? 'Daily' : '4H'} trend · SL ${p.sl}ATR · touch ${p.touch} · ${ex.tpR}R`
+  : `Breakout ${p.n} · ADX>${p.adx} · ${p.htf === 'htfD' ? 'Daily' : '4H'} trend · SL ${p.sl}ATR${p.hours ? ' · London/NY' : ''} · ${ex.tpR}R`;
+const mini = (s) => `${s.trades} trades · win ${s.winRate}% · PF ${s.profitFactor ?? '—'} · Net <b class="${cls(s.netR)}">${s.netR}R</b>`;
+
+$('btnOptimize').onclick = async () => {
+  const b = $('btnOptimize'); b.disabled = true;
+  $('btOut').innerHTML = '<span class="muted">Optimizer run වෙනවා… settings 112ක් test කරනවා (තත්පර 10–30)</span>';
+  try {
+    const o = await api('/api/optimize', { method: 'POST', body: { symbol: S.symbol, tf: S.tf } });
+    if (!o.train) { $('btOut').innerHTML = `${profBadge(o.status)} <span class="small">${o.note}</span>`; b.disabled = false; return; }
+    $('btOut').innerHTML = `
+      <div class="prof">${profBadge(o.status)} <b>${S.symbol} ${S.tf}</b> — ${o.note}</div>
+      <p class="small muted">Data: ${day(o.from)} → ${day(o.to)}. <b>Train</b> (${day(o.from)} → ${day(o.splitTime)}) එකේ හොඳම settings තෝරලා, ඒවා කවදාවත් නොදැකපු <b>Test</b> (${day(o.splitTime)} → ${day(o.to)}) කොටසේ test කළා.</p>
+      <table class="wrap">
+        <tr><th></th><th>Settings</th><th>Train</th><th>Test (වැදගත්ම එක)</th></tr>
+        <tr><td>Optimizer best</td><td class="small">${paramText(o.strategy, o.params, o.exits)}</td><td class="small">${mini(o.train)}</td><td class="small">${mini(o.test)}</td></tr>
+        <tr><td>දැනට තියෙන profile</td><td class="small">—</td><td></td><td class="small">${mini(o.presetTest)}</td></tr>
+      </table>
+      <p class="small">${o.hasPreset
+        ? 'ⓘ මේ symbol/timeframe එකට අවුරුදු 4–5 ක research profile එකක් තියෙනවා — ඒකම තියාගත්තා. "දැනට තියෙන profile" row එකෙන් පේන්නේ ඒක පහුගිය මාස කීපයේ කොහොමද වැඩ කළේ කියලා.'
+        : o.decisive ? '✓ මේ profile එක save වුණා — signals දැන් මේ settings වලින් එනවා.' : 'ⓘ Trades මදි නිසා profile එක වෙනස් කළේ නැහැ.'}</p>`;
+    loadSignal();
+  } catch (e) { $('btOut').innerHTML = `<span class="neg">${e.message}</span>`; }
+  b.disabled = false;
 };
 
 /* ---------- paper trading ---------- */
@@ -282,7 +342,7 @@ async function loadPaper() {
 
 $('btnUseSig').onclick = () => {
   const s = S.signal;
-  if (!s || s.action === 'WAIT') { $('orderMsg').textContent = 'දැන් active signal එකක් නැහැ.'; return; }
+  if (!s || !['BUY', 'SELL'].includes(s.action)) { $('orderMsg').textContent = 'දැන් active signal එකක් නැහැ.'; return; }
   S.orderZone = s.zone;
   if (S.sigState && S.sigState !== 'ACTIVE') $('orderMsg').innerHTML = `<span class="neg">⚠️ Signal status: ${S.sigState} — දැන් entry ගන්න හොඳ නැහැ.</span>`;
   $('oSL').value = (+s.stopLoss).toFixed(digits(S.symbol));

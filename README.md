@@ -21,6 +21,23 @@ Forex, Gold සහ Crypto analyze කරලා **entry signals** දෙන, **ba
 - Watchlist එකේ කොළ පාට තිත (●) = LIVE. අළු පාට = delayed (විනාඩියකට සැරයක්).
 - Node.js **22 හෝ අලුත්** ඕන (built-in WebSocket).
 
+## Strategies (research කරලා තෝරපු)
+ඇත්ත tick data (Gold 2014–2018, EURUSD 2017–2021) උඩ strategies 4ක් + settings 550+ ක් spread costs එක්ක, walk-forward ක්‍රමයට test කළා (`research/` folder එක).
+
+| Symbol / TF | Strategy | Research result | Status |
+|---|---|---|---|
+| XAUUSD 1h | Trend Pullback | 91 trades · PF 1.3 · අවුරුදු 5/5 ලාභ | ✅ Verified |
+| XAUUSD 4h | Trend Breakout (55, London/NY) | 117 trades · PF 1.4 · 4/5 | ✅ Verified |
+| XAUUSD 15m | Trend Breakout (55) | 720 trades · PF 1.11 · 4/5 | ⚠️ Weak |
+| EURUSD 4h | Trend Pullback | 61 trades · PF 1.51 · 5/5 | ✅ Verified |
+| EURUSD 1h, 15m | — | කිසිම strategy එකක් ලාභ නැහැ | ⛔ Disabled |
+| අනිත් ඒවා | Trend Pullback (default) | test කරලා නැහැ | ❔ Unverified → Optimizer run කරන්න |
+
+- **Trend Pullback:** ලොකු (4H/Daily) trend එක + EMA 20>50>200 + ADX ශක්තිය → මිල EMA20 ට pullback වෙලා RSI 50 cross කරනකොට entry. SL = 1.5–2 ATR, Target = 3R.
+- **Trend Breakout:** trend පැත්තට candles 55 ක high/low එක break වෙනකොට entry.
+- **Optimizer (Backtest tab):** ඔයාගේ machine එකේ අලුත්ම candles 5000 ගෙන, 60% එකේ settings 112 න් හොඳම එක තෝරලා, ඉතුරු 40% (නොදැකපු) කොටසේ test කරනවා. Research profile නැති symbols වලට ප්‍රතිඵලය save වෙනවා.
+- Backtests වල trading cost (spread + commission) අඩු කරලා තියෙන්නේ: gold $0.60, EURUSD 1.5 pips, crypto 0.2%.
+
 ## Signals වැඩ කරන විදිහ
 - Signal හදන්නේ **close වුණු candles** වලින් විතරයි. Candle එක මැද්දේ BUY එක WAIT වෙන්නේ නැහැ.
 - හැම signal එකකටම **entry zone** එකක් තියෙනවා. Live මිල අනුව status එක:
