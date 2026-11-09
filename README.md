@@ -38,6 +38,16 @@ Forex, Gold සහ Crypto analyze කරලා **entry signals** දෙන, **ba
 - **Optimizer (Backtest tab):** ඔයාගේ machine එකේ අලුත්ම candles 5000 ගෙන, 60% එකේ settings 112 න් හොඳම එක තෝරලා, ඉතුරු 40% (නොදැකපු) කොටසේ test කරනවා. Research profile නැති symbols වලට ප්‍රතිඵලය save වෙනවා.
 - Backtests වල trading cost (spread + commission) අඩු කරලා තියෙන්නේ: gold $0.60, EURUSD 1.5 pips, crypto 0.2%.
 
+## 🤖 AI Analysis + News check
+Signal card එකේ button එක click කරාම (ANTHROPIC_API_KEY ඕන):
+1. Claude web එකේ අද news search කරනවා (Fed, inflation, USD, geopolitics, ඉදිරි පැය 48 high-impact events)
+2. Chart data + indicators analyze කරලා **AI එකේම signal එකක්** දෙනවා (BUY/SELL/WAIT, entry, SL, TP, confidence)
+3. Strategy signal එකයි AI signal එකයි side-by-side: ✅ MATCH / ⚠️ PARTIAL / ❌ CONFLICT
+4. ඉදිරි පැය 24 ඇතුළත high-impact news තියෙනවා නම් රතු warning එකක්
+5. හැම analysis එකක්ම `data/ai-log.json` එකේ save වෙනවා (පස්සේ AI එක ඇත්තටම උදව් වෙනවද කියලා මනින්න)
+
+AI signal එක backtest කරලා නැහැ — ප්‍රධාන signal එක strategy එකයි. Cost: analysis එකකට ~$0.03–0.08.
+
 ## Signals වැඩ කරන විදිහ
 - Signal හදන්නේ **close වුණු candles** වලින් විතරයි. Candle එක මැද්දේ BUY එක WAIT වෙන්නේ නැහැ.
 - හැම signal එකකටම **entry zone** එකක් තියෙනවා. Live මිල අනුව status එක:

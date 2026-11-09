@@ -215,13 +215,71 @@ async function loadMtf() {
   } catch { $('mtf').innerHTML = ''; }
 }
 
+const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const MATCH = {
+  MATCH: { cls: 'ACTIVE', icon: '✅', label: 'MATCH' },
+  MATCH_WAIT: { cls: 'DONE', icon: '⏸️', label: 'දෙකම WAIT' },
+  PARTIAL: { cls: 'CAUTION', icon: '⚠️', label: 'PARTIAL' },
+  AI_ONLY: { cls: 'CAUTION', icon: '⚠️', label: 'AI විතරයි' },
+  CONFLICT: { cls: 'INVALID', icon: '❌', label: 'CONFLICT' },
+};
+const localT = (u) => { const t = Date.parse(String(u).replace(' ', 'T') + 'Z'); return isNaN(t) ? esc(u) + ' UTC' : dt(t) + ' (ලංකා වේලාව)'; };
+const BIAS = { bullish: ['pos', '▲ Bullish (මිල උඩට)'], bearish: ['neg', '▼ Bearish (මිල පහළට)'], neutral: ['muted', '● Neutral'] };
+
+function sigCol(title, a, entry, sl, tp, rr, extra) {
+  const trade = ['BUY', 'SELL'].includes(a);
+  return `<div class="cmp-col"><div class="small muted">${title}</div>
+    <div class="cmp-act ${a}">${a || '—'}</div>
+    ${trade ? `<div class="mono small">Entry ${fmt(entry)}<br><span class="neg">SL ${fmt(sl)}</span><br><span class="pos">TP ${fmt(tp)}</span>${rr ? `<br>R:R 1:${rr}` : ''}</div>` : ''}
+    ${extra || ''}</div>`;
+}
+
+function renderAI(r) {
+  if (!r.ok) {
+    if (r.error === 'NO_KEY') return `<div class="status CAUTION">AI analysis එකට <b>ANTHROPIC_API_KEY</b> එක ඕන. platform.claude.com එකෙන් key එකක් අරන් <code>.env</code> එකට දාලා server එක restart කරන්න.</div>`;
+    return `<div class="status INVALID">AI උත්තරය කියවන්න බැරි වුණා — ආයෙත් try කරන්න.</div><div class="small muted">${esc(r.raw || '')}</div>`;
+  }
+  const m = MATCH[r.match.code] || MATCH.PARTIAL;
+  const st = r.strategy, ai = r.ai;
+  const b = BIAS[r.news.bias] || BIAS.neutral;
+  const ev = (r.news.events || []).map((e) => `<li>${e.impact === 'high' ? '🔴' : '🟠'} <span class="mono">${localT(e.time_utc)}</span> — ${esc(e.event)}</li>`).join('');
+  return `
+    <div class="ai-head">🤖 AI Analysis · <span class="muted small">${dt(Date.parse(r.time))} · ${r.symbol} ${r.tf}</span></div>
+    <div class="status ${m.cls}"><b>${m.icon} ${m.label}</b> · ${esc(r.match.text)}</div>
+    <div class="cmp">
+      ${sigCol(`📐 Strategy (research) ${profBadge(st.status)}`, st.action, st.entry, st.stopLoss, st.target, st.rr)}
+      ${sigCol('🤖 AI (news + chart)', ai.action, ai.entry, ai.stop_loss, ai.take_profit, ai.rr,
+        `${ai.confidence != null ? `<div class="small">Confidence ${ai.confidence}%</div>` : ''}${ai.hold_hours ? `<div class="small muted">~පැය ${ai.hold_hours}</div>` : ''}${ai.valid === false ? `<div class="small neg">${esc(ai.problems.join(', '))}</div>` : ''}`)}
+    </div>
+    ${r.news.soonHighImpact?.length ? `<div class="status INVALID">🔴 ඊළඟ පැය 24 ඇතුළත high-impact news: ${r.news.soonHighImpact.map((e) => esc(e.event) + ' — ' + localT(e.time_utc)).join(', ')} — ඒ වෙලාවට trade එකක් open කරන්න එපා / SL එක ගැන සැලකිලිමත් වෙන්න</div>` : ''}
+    <div class="ai-sec"><b>📰 News</b> <span class="${b[0]}">${b[1]}</span><br>${esc(r.news.summary)}</div>
+    ${ev ? `<div class="ai-sec"><b>📅 ඉදිරි events</b><ul class="ev">${ev}</ul></div>` : ''}
+    <div class="ai-sec"><b>📈 Chart</b><br>${esc(r.technical)}</div>
+    <div class="ai-sec"><b>⚖️ Strategy එකයි AI එකයි</b><br>${esc(r.comparison)}</div>
+    ${r.risks?.length ? `<div class="ai-sec"><b>⚠️ Risks</b><ul class="ev">${r.risks.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
+    <div class="ai-sec advice"><b>👉 ${esc(r.advice)}</b></div>
+    ${['BUY', 'SELL'].includes(ai.action) && ai.valid ? `<button class="sm ghost" id="btnUseAI">AI levels වලින් order fill කරන්න</button>` : ''}
+    <div class="small muted" style="margin-top:6px">ⓘ AI signal එක backtest කරලා නැහැ — ප්‍රධාන signal එක strategy එකයි. AI එක news check + දෙවෙනි මතයක් විතරයි. මේ analysis එක ප්‍රතිඵල මනින්න save වුණා.</div>
+    ${r.sources?.length ? `<div class="ai-sec small"><b>Sources:</b><br>${r.sources.map((x) => `<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.title || x.url)}</a>`).join('<br>')}</div>` : ''}`;
+}
+
 $('btnExplain').onclick = async () => {
   const b = $('btnExplain');
-  b.disabled = true; $('aiOut').textContent = 'Analyze කරනවා…';
+  b.disabled = true;
+  $('aiOut').innerHTML = '<div class="muted">🔎 News search කරනවා, market එක analyze කරනවා… (තත්පර 20–60)</div>';
   try {
     const r = await api('/api/explain', { method: 'POST', body: { symbol: S.symbol, tf: S.tf } });
-    $('aiOut').textContent = r.text + (r.source === 'rules' && !S.cfg.hasAI ? '\n\n(ANTHROPIC_API_KEY දැම්මොත් AI analysis එක එනවා)' : '');
-  } catch (e) { $('aiOut').textContent = e.message; }
+    S.ai = r;
+    $('aiOut').innerHTML = renderAI(r);
+    const u = $('btnUseAI');
+    if (u) u.onclick = () => {
+      $('oSL').value = (+r.ai.stop_loss).toFixed(digits(S.symbol));
+      $('oTP').value = (+r.ai.take_profit).toFixed(digits(S.symbol));
+      S.orderZone = null;
+      $('orderMsg').innerHTML = `<span class="muted">AI levels දැම්මා (${r.ai.action}). ⚠️ AI signal එක backtest කරලා නැහැ.</span>`;
+      $('btnCalc').click();
+    };
+  } catch (e) { $('aiOut').innerHTML = `<div class="status INVALID">${esc(e.message)}</div>`; }
   b.disabled = false;
 };
 

@@ -60,7 +60,7 @@ th { color: var(--muted); font-weight: 500; }
 .reasons { margin: 0; padding-left: 0; list-style: none; font-size: 12px; }
 .reasons li { padding: 2px 0; } .reasons .p { color: var(--buy); } .reasons .m { color: var(--sell); } .reasons .z { color: var(--muted); }
 .mtf { display: flex; gap: 6px; margin-top: 8px; font-size: 11px; } .mtf div { flex: 1; text-align: center; background: var(--bg); border-radius: 5px; padding: 4px; }
-.ai-out { white-space: pre-wrap; font-size: 12.5px; margin-top: 8px; }
+.ai-out { font-size: 12.5px; margin-top: 8px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; } .row label { display: flex; gap: 6px; align-items: center; } .row input { width: 70px; }
 .acct { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; font-size: 12px; text-align: center; }
@@ -88,3 +88,14 @@ th { color: var(--muted); font-weight: 500; }
 .sig-action.OFF { color: var(--sell); opacity: .7; }
 .pill.OFF { background: rgba(239,68,68,.12); color: var(--sell); }
 table.wrap td, table.wrap th { white-space: normal; }
+
+.ai-head { font-weight: 600; margin-bottom: 6px; }
+.cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
+.cmp-col { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px; }
+.cmp-col .badge { font-size: 9px; padding: 0 5px; }
+.cmp-act { font-size: 18px; font-weight: 800; margin: 2px 0; }
+.cmp-act.BUY { color: var(--buy); } .cmp-act.SELL { color: var(--sell); } .cmp-act.WAIT, .cmp-act.OFF { color: var(--muted); }
+.ai-sec { margin: 7px 0; line-height: 1.5; }
+.ai-sec.advice { background: rgba(59,130,246,.12); border-left: 3px solid var(--accent); padding: 6px 8px; border-radius: 4px; }
+ul.ev { margin: 3px 0; padding-left: 16px; }
+.ai-out a { color: var(--accent); word-break: break-all; }

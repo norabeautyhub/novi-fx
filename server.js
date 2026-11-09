@@ -154,8 +154,7 @@ app.post('/api/explain', wrap(async (req, res) => {
   const signal = liveSignal(candles, symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits);
   signal.livePrice = await getPrice(symbol);
   signal.status = signalStatus(signal, signal.livePrice, Date.now() / 1000);
-  const mtf = await mtfFor(symbol);
-  res.json(await ai.explain({ symbol, tf, signal, candles, mtf }));
+  res.json(await ai.analyze({ symbol, tf, signal, candles, livePrice: signal.livePrice, digits: INSTRUMENTS[symbol].digits }));
 }));
 
 app.get('/api/size', wrap(async (req, res) => {
