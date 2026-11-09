@@ -33,6 +33,7 @@ function nearestLevels(swingsList, i, price) {
 
 function evaluateAt(candles, ind, i, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
+  const f = (v) => (o.digits != null ? (+v).toFixed(o.digits) : +(+v).toPrecision(8));
   const c = candles[i];
   const price = c.close;
   const e20 = ind.ema20[i], e50 = ind.ema50[i], e200 = ind.ema200[i];
@@ -76,8 +77,8 @@ function evaluateAt(candles, ind, i, opts = {}) {
 
   // 6. Support/resistance room
   const lv = nearestLevels(ind.swings, i, price);
-  if (score > 0 && lv.resistance && lv.resistance - price < 1 * a) add(-1, `ළඟින්ම resistance එකක් (${lv.resistance}) — buy කරන්න ඉඩ අඩුයි`);
-  if (score < 0 && lv.support && price - lv.support < 1 * a) add(1, `ළඟින්ම support එකක් (${lv.support}) — sell කරන්න ඉඩ අඩුයි`);
+  if (score > 0 && lv.resistance && lv.resistance - price < 1 * a) add(-1, `ළඟින්ම resistance එකක් (${f(lv.resistance)}) — buy කරන්න ඉඩ අඩුයි`);
+  if (score < 0 && lv.support && price - lv.support < 1 * a) add(1, `ළඟින්ම support එකක් (${f(lv.support)}) — sell කරන්න ඉඩ අඩුයි`);
 
   let action = 'WAIT';
   if (score >= o.threshold) action = 'BUY';

@@ -38,6 +38,8 @@ async function fromTwelveData(inst, tf, limit) {
       time: Math.floor(Date.parse(v.datetime.replace(' ', 'T') + 'Z') / 1000),
       open: +v.open, high: +v.high, low: +v.low, close: +v.close, volume: +(v.volume || 0),
     }))
+    // market closed (weekend/holiday) → flat candles with no movement; they distort EMA/ATR
+    .filter((c) => c.high !== c.low)
     .reverse();
 }
 

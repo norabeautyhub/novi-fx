@@ -96,7 +96,7 @@ app.get('/api/candles', wrap(async (req, res) => {
 app.get('/api/signal', wrap(async (req, res) => {
   const symbol = sym(req), tf = tfOf(req);
   const candles = await getCandles(symbol, tf, 500);
-  const sig = liveSignal(candles, {}, TF_SEC[tf]);
+  const sig = liveSignal(candles, { digits: INSTRUMENTS[symbol].digits }, TF_SEC[tf]);
   sig.livePrice = await getPrice(symbol);
   sig.status = signalStatus(sig, sig.livePrice, Date.now() / 1000);
   sig.tfSec = TF_SEC[tf];
@@ -108,7 +108,7 @@ async function mtfFor(symbol) {
   const out = {};
   for (const tf of ['15m', '1h', '4h']) {
     try {
-      const s = liveSignal(await getCandles(symbol, tf, 500, 3 * 60_000), {}, TF_SEC[tf]);
+      const s = liveSignal(await getCandles(symbol, tf, 500, 3 * 60_000), { digits: INSTRUMENTS[symbol].digits }, TF_SEC[tf]);
       const st = signalStatus(s, await getPrice(symbol), Date.now() / 1000);
       out[tf] = { action: s.action, score: s.score, status: st?.code || null };
     } catch (e) { out[tf] = { error: e.message }; }
@@ -123,7 +123,7 @@ app.get('/api/scan', wrap(async (req, res) => {
   const results = [];
   for (const s of Object.keys(INSTRUMENTS)) {
     try {
-      const sig = liveSignal(await getCandles(s, tf, 500, 5 * 60_000), {}, TF_SEC[tf]);
+      const sig = liveSignal(await getCandles(s, tf, 500, 5 * 60_000), { digits: INSTRUMENTS[s].digits }, TF_SEC[tf]);
       const price = await getPrice(s);
       const st = signalStatus(sig, price, Date.now() / 1000);
       results.push({ symbol: s, action: sig.action, score: sig.score, confidence: sig.confidence, price, entry: sig.entry, stopLoss: sig.stopLoss, tp1: sig.tp1, tp2: sig.tp2, zone: sig.zone, status: st?.code || null, live: stream.isLive(s) });
@@ -141,7 +141,7 @@ app.get('/api/backtest', wrap(async (req, res) => {
 app.post('/api/explain', wrap(async (req, res) => {
   const symbol = sym(req), tf = tfOf(req);
   const candles = await getCandles(symbol, tf, 500);
-  const signal = liveSignal(candles, {}, TF_SEC[tf]);
+  const signal = liveSignal(candles, { digits: INSTRUMENTS[symbol].digits }, TF_SEC[tf]);
   signal.livePrice = await getPrice(symbol);
   signal.status = signalStatus(signal, signal.livePrice, Date.now() / 1000);
   const mtf = await mtfFor(symbol);
