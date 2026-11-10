@@ -169,8 +169,42 @@ app.post('/api/deep', wrap(async (req, res) => {
   const symbol = sym(req), tf = tfOf(req);
   let strategySignal = null;
   try { strategySignal = liveSignal(await getCandles(symbol, tf, N), symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits, modeOf(req)); } catch {}
-  res.json(await deepAnalyze({ symbol, tf, strategySignal, getPrice, getCandles: deepCandles }));
+  const out = await deepAnalyze({ symbol, tf, strategySignal, getPrice, getCandles: deepCandles });
+  try { out.modes = await compareModes(symbol, tf); } catch (e) { out.modes = { error: e.message }; }
+  res.json(out);
 }));
+
+// Separate result for Deep: the strategy signal in all 3 trade modes + each mode's backtest on this market.
+// Does NOT change the main signal — only shows which mode was best (profit / win rate) here.
+async function compareModes(symbol, tf) {
+  const digits = INSTRUMENTS[symbol].digits;
+  const live = await getCandles(symbol, tf, N);
+  const hist = await getCandles(symbol, tf, 5000, 10 * 60_000, true);
+  const price = await getPrice(symbol);
+  const modes = {};
+  for (const m of Object.keys(MODES)) {
+    const sig = liveSignal(live, symbol, tf, TF_SEC[tf], digits, m);
+    const st = signalStatus(sig, price, Date.now() / 1000);
+    const bt = backtest(hist, symbol, tf, m);
+    const tr = bt.trades, n = Math.max(1, tr.length);
+    let L = 0, maxL = 0;
+    for (const t of tr) { if (t.r < -0.1) { L++; maxL = Math.max(maxL, L); } else if (t.r > 0.1) L = 0; }
+    modes[m] = {
+      signal: ['BUY', 'SELL'].includes(sig.action)
+        ? { action: sig.action, entry: sig.entry, stopLoss: sig.stopLoss, tp1: sig.tp1, target: sig.tp2, plan: sig.plan, limitExpires: sig.limitExpires, status: st?.code, statusText: st?.text }
+        : { action: sig.action },
+      stats: {
+        trades: tr.length, win: Math.round((tr.filter((t) => t.r > 0.1).length / n) * 100), be: Math.round((tr.filter((t) => Math.abs(t.r) <= 0.1).length / n) * 100),
+        loss: Math.round((tr.filter((t) => t.r < -0.1).length / n) * 100), netR: bt.stats.netR, maxL, from: bt.stats.from, to: bt.stats.to,
+      },
+    };
+  }
+  const keys = Object.keys(modes);
+  const bestProfit = keys.reduce((a, k) => (modes[k].stats.netR > modes[a].stats.netR ? k : a));
+  const profitable = keys.filter((k) => modes[k].stats.netR > 0);
+  const bestWin = profitable.length ? profitable.reduce((a, k) => (modes[k].stats.win > modes[a].stats.win ? k : a)) : null;
+  return { modes, bestProfit: modes[bestProfit].stats.netR > 0 ? bestProfit : null, bestWin };
+}
 
 // Signal Grade (A/B/C) for the current strategy signal — light Deep run (no headlines, not logged as Deep)
 const gradeCache = new Map();

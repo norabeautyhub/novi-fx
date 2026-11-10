@@ -146,3 +146,7 @@ ul.news li { margin-bottom: 3px; }
 ol.steps { margin: 6px 0; padding-left: 18px; font-size: 12.5px; } ol.steps li { margin-bottom: 3px; }
 .toast { position: fixed; right: 16px; bottom: 16px; z-index: 99; background: var(--panel2); border: 1px solid var(--warn); border-left: 4px solid var(--warn); padding: 10px 14px; border-radius: 8px; max-width: 360px; box-shadow: 0 6px 24px rgba(0,0,0,.5); cursor: pointer; }
 .sq span.b { background: #6b7280; }
+
+.mgrid { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 6px 0; }
+.mcard { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px; }
+.mc-h { font-size: 12.5px; margin-bottom: 2px; }

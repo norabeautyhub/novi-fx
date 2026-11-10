@@ -372,6 +372,29 @@ const DMATCH_TXT = {
   MATCH_WAIT: 'දෙකම WAIT — දැන් trade එකක් නැහැ', PARTIAL: 'Strategy signal එකක් තියෙනවා, Deep එක WAIT — ප්‍රවේශමෙන්',
   DEEP_ONLY: 'Deep එක විතරයි signal දෙන්නේ — strategy එක (backtest කරපු එක) තාම confirm නැහැ',
 };
+function modesSection(M, sym) {
+  if (!M) return '';
+  if (M.error) return `<div class="ai-sec small neg">Mode compare: ${esc(M.error)}</div>`;
+  const risk$ = 10, keys = ['normal', 'breakeven', 'highwin'];
+  const st0 = M.modes.normal.stats;
+  const yrs = (st0.to - st0.from) / (365.25 * 86400);
+  const card = (title, k) => {
+    if (!k) return `<div class="mcard"><div class="mc-h">${title}</div><div class="small muted">මේ market එකේ ලාභ වුණු mode එකක් නැහැ</div></div>`;
+    const m = M.modes[k], sg = m.signal;
+    const trade = ['BUY', 'SELL'].includes(sg.action);
+    const steps = trade ? planSteps({ ...sg, mode: k, stopLoss: sg.stopLoss }) || `<div class="small mono">${sg.action} · Entry ${fmt(sg.entry, sym)} · <span class="neg">SL ${fmt(sg.stopLoss, sym)}</span> · <span class="pos">Target ${fmt(sg.target, sym)}</span></div>` : '';
+    return `<div class="mcard"><div class="mc-h">${title}: <b>${MODE_NAME[k]}</b></div>
+      <div class="small">✅ ${m.stats.win}% · ⚪ ${m.stats.be}% · ❌ ${m.stats.loss}% · ලාභය <b class="${cls(m.stats.netR)}">${money0(m.stats.netR * risk$)}</b></div>
+      ${trade ? `<div style="margin-top:4px"><span class="pill ${sg.action}">${sg.action}</span> ${sg.status ? `<span class="small muted">${sg.status}</span>` : ''}</div>${steps}`
+        : `<div class="small muted" style="margin-top:4px">දැන් strategy signal එකක් නැහැ (${sg.action}). Signal එකක් ආවොත් මේ mode එක පාවිච්චි කරන්න.</div>`}</div>`;
+  };
+  return `<div class="ai-sec"><b>⚖️ Mode 3ම සසඳීම — ${sym}</b> <span class="muted small">(backtest ${day(st0.from)} → ${day(st0.to)}, ~අවුරුදු ${yrs.toFixed(1)}, $10 risk)</span>
+    <div style="overflow-x:auto"><table class="votes"><tr><th></th><th>✅</th><th>⚪</th><th>❌</th><th>ලාභය</th></tr>
+    ${keys.map((k) => { const x = M.modes[k].stats; return `<tr><td>${MODE_NAME[k]}${k === M.bestProfit ? ' 💰' : ''}${k === M.bestWin ? ' 🎯' : ''}<br><span class="muted" style="font-size:10.5px">trades ${x.trades} · පාඩු streak ${x.maxL}</span></td><td class="pos">${x.win}%</td><td>${x.be}%</td><td class="neg">${x.loss}%</td><td class="${cls(x.netR)}">${money0(x.netR * risk$)}</td></tr>`; }).join('')}</table></div>
+    <div class="mgrid">${card('💰 වැඩිම ලාභය', M.bestProfit)}${card('🎯 වැඩිම win rate', M.bestWin)}</div>
+    <div class="small muted">ⓘ මේක අමතර තොරතුරක් විතරයි — ප්‍රධාන signal එක (උඩ) ඔයා තෝරපු mode එකෙන්මයි. Backtest එක පහුගිය ප්‍රතිඵල — අනාගතයට guarantee නැහැ.</div></div>`;
+}
+
 function renderDeep(r) {
   const tfs = ['15m', '1h', '4h', '1d'];
   const names = (tfs.map((t) => r.frames[t]).find((f) => f && f.votes) || { votes: [] }).votes.map((v) => [v.key, v.name]);
@@ -393,6 +416,7 @@ function renderDeep(r) {
       <button class="sm ghost" id="btnUseDeep">Deep levels වලින් order fill කරන්න</button>` : ''}
     <div class="status ${m.cls}"><b>${m.icon} ${m.label}</b> · ${DMATCH_TXT[r.match] || ''}${r.strategy ? ` <span class="muted">(Strategy: ${r.strategy.action})</span>` : ''}</div>
     ${r.soonHighImpact?.length ? `<div class="status INVALID">🔴 ඉදිරි පැය 24 ඇතුළත high-impact news: ${r.soonHighImpact.map((e) => `${e.country} ${esc(e.title)} — ${dt(e.time)}`).join(', ')}. ඒ වෙලාවට කලින් trade එකක් open කරන්න එපා.</div>` : ''}
+    ${modesSection(r.modes, r.symbol)}
     <div class="ai-sec"><b>📊 Indicators ඡන්ද</b> <span class="muted small">▲ BUY · ▼ SELL · • neutral (mouse එක තිබ්බම විස්තර)</span>
       <table class="votes"><tr><th></th>${tfs.map((t) => `<th class="${t === r.tf ? 'cur' : ''}">${t}</th>`).join('')}</tr>
       ${names.map(([k, n]) => `<tr><td>${esc(n)}</td>${tfs.map((t) => cell(t, k)).join('')}</tr>`).join('')}
