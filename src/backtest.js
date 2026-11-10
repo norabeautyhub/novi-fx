@@ -16,11 +16,15 @@ function runConfig(F, symbol, strategy, params, exits, start = 250, end = null) 
   return S.simulate(F, sig, sl, exits, costFn(symbol), start);
 }
 
-function backtest(candles, symbol, tf) {
+function backtest(candles, symbol, tf, mode = 'normal') {
   const prof = getProfile(symbol, tf);
   const F = S.features(candles);
-  const trades = runConfig(F, symbol, prof.strategy, prof.params, prof.exits);
+  const { sig, sl } = S.STRATEGIES[prof.strategy](F, prof.params);
+  const trades = S.simulateMode(F, sig, sl, prof.exits, mode, costFn(symbol));
   const st = S.stats(trades, prof.exits.tpR);
+  st.mode = mode;
+  st.notFilled = trades.skipped || 0;
+  st.breakeven = trades.filter((t) => Math.abs(t.r) <= 0.1).length;
   return {
     profile: { status: prof.status, strategy: prof.strategy, params: prof.params, exits: prof.exits, research: prof.research, optimizer: prof.optimizer, source: prof.source },
     stats: { ...st, from: candles[250]?.time, to: candles[candles.length - 1]?.time, cost: INSTRUMENTS[symbol].costPct ? `${INSTRUMENTS[symbol].costPct * 100}%` : INSTRUMENTS[symbol].cost },

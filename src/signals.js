@@ -3,6 +3,7 @@
 // whether SL / TP1 was already touched after it.
 
 const S = require('./strategy');
+const { MODES } = S;
 const { getProfile } = require('./profiles');
 
 const VALID_BARS = 3;
@@ -31,7 +32,7 @@ function checklist(F, i, prof, f) {
   return out;
 }
 
-function liveSignal(candles, symbol, tf, tfSec, digits) {
+function liveSignal(candles, symbol, tf, tfSec, digits, mode = 'normal') {
   const prof = getProfile(symbol, tf);
   const f = (v) => (digits != null ? (+v).toFixed(digits) : String(+(+v).toPrecision(8)));
   const L = candles.length - 2; // last CLOSED candle
@@ -74,6 +75,31 @@ function liveSignal(candles, symbol, tf, tfSec, digits) {
       ...checklist(F, k, prof, f),
     ],
   };
+  res.mode = MODES[mode] ? mode : 'normal';
+  const R1 = (e, r) => e + d * r;
+  if (res.mode === 'highwin') {
+    // limit entry 0.5 ATR better; stop stays at the same price; 50% off at 1R + SL to entry; rest to target
+    const lim = entry - d * 0.5 * a;
+    const rk = Math.max(risk - 0.5 * a, 0.5 * a);
+    res.marketEntry = entry;
+    res.entry = lim; res.stopLoss = lim - d * rk; res.tp1 = lim + d * rk; res.tp2 = lim + d * tpR * rk;
+    res.zone = [lim, lim];
+    res.limitExpires = candles[k].time + (1 + 4) * tfSec;
+    res.plan = { limit: lim, partialAt: res.tp1, beTo: lim + d * 0.05 * rk, target: res.tp2 };
+    // was the limit filled (within 4 candles)? then follow the trade
+    let fillJ = -1;
+    for (let j = k + 1; j < Math.min(candles.length, k + 5); j++) if (d === 1 ? candles[j].low <= lim : candles[j].high >= lim) { fillJ = j; break; }
+    if (fillJ >= 0) {
+      res.filled = true; res.filledTime = candles[fillJ].time;
+      for (let j = fillJ; j < candles.length; j++) {
+        const c = candles[j];
+        if (d === 1 ? c.low <= res.stopLoss : c.high >= res.stopLoss) { res.outcome = 'SL'; break; }
+        if (d === 1 ? c.high >= res.tp1 : c.low <= res.tp1) { res.outcome = 'TP1'; break; }
+      }
+    }
+    return res;
+  }
+  if (res.mode === 'breakeven') res.plan = { beAt: R1(entry, risk), beTo: entry + d * 0.05 * risk, target: res.tp2 };
   for (let j = k + 1; j < candles.length; j++) {
     const c = candles[j];
     if (d === 1 ? c.low <= res.stopLoss : c.high >= res.stopLoss) { res.outcome = 'SL'; break; }
@@ -86,6 +112,14 @@ function liveSignal(candles, symbol, tf, tfSec, digits) {
 function signalStatus(sig, price, nowSec) {
   if (!sig || !['BUY', 'SELL'].includes(sig.action) || price == null) return null;
   const dir = sig.action === 'BUY' ? 1 : -1;
+  if (sig.mode === 'highwin') {
+    if (sig.outcome === 'SL') return { code: 'INVALID', text: 'Stop loss එක වැදුනා — signal එක ඉවරයි' };
+    if (sig.outcome === 'TP1') return { code: 'DONE', text: 'Trade එක 1R දක්වා ගියා (50% ලාභය ගත්තා) — අලුතෙන් entry නැහැ' };
+    if (sig.filled) return { code: 'FILLED', text: 'Limit order එක fill වුණා — trade එක open. අලුතෙන් entry ගන්න එපා' };
+    if (dir * (price - sig.stopLoss) <= 0) return { code: 'INVALID', text: 'මිල SL එක පහු කළා — signal එක cancel' };
+    if (nowSec > sig.limitExpires) return { code: 'EXPIRED', text: 'Candles 4ක් ඇතුළත limit මිලට ආවේ නැහැ — order එක delete කරන්න' };
+    return { code: 'LIMIT', text: `${sig.action} LIMIT order එකක් ${sig.entry} මිලට දාන්න — candles 4ක් ඇතුළත මිල ආවොත් trade එක වෙනවා` };
+  }
   if (sig.outcome === 'SL') return { code: 'INVALID', text: 'Stop loss එක වැදුනා — signal එක cancel' };
   if (sig.outcome === 'TP1') return { code: 'DONE', text: 'මිල 1.5R දක්වා ගිහින් — දැන් entry ගන්න පරක්කුයි' };
   if (dir * (price - sig.stopLoss) <= 0) return { code: 'INVALID', text: 'මිල SL එක පහු කළා — signal එක cancel' };

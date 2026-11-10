@@ -47,6 +47,18 @@ Forex, Gold සහ Crypto analyze කරලා **entry signals** දෙන, **ba
 ## 💵 Backtest screen
 🟢/🟡/🔴 තීරණය · "මගේ සල්ලි වලට මොකද වෙන්නේ" calculator (පටන් ගන්න මුදල + risk %) · පියවරෙන් පියවර ගණන · $ balance chart · දිනුම්/පැරදුම් කොටු + එක දිගට පැරදුණු උපරිමය · chart එකේ trade ලකුණු · trades list · advanced විස්තර.
 
+## 🎯 Trade Modes (Signal card එකේ උඩ)
+Research (`research/wr.py`, Gold 2014–2018 / EURUSD 2017–2021, costs එක්ක):
+
+| Mode | කරන දේ | Gold 4h ප්‍රතිඵලය ($10 risk) |
+|---|---|---|
+| Normal | Signal මිලට entry, SL / 3R target | 33% win, 67% loss, +$329 |
+| 🛡️ Breakeven | 1R වුණාම SL → entry | 24% win, 36% $0, 40% loss, +$349 |
+| 🎯 High Win Rate | 0.5 ATR limit entry (candles 4), 1R දී 50% close + SL → entry, ඉතුරු භාගය 3R | **62% win**, 38% loss, එක දිගට පාඩු max 4, +$189 |
+
+Gold 4h walk-forward (නොදැකපු 2016–2018): High Win Rate 61% win +20.8R vs Normal 33% +18.4R.
+Signal card එකේ පියවරෙන් පියවර උපදෙස්, chart lines, 1R alert (browser notification), Demo trading එකේ limit order + auto 50% close + breakeven, Backtest එකේ "⚖️ Modes 3ම compare".
+
 ## 🔬 Deep Analysis (free — AI key ඕන නැහැ)
 Signal card එකේ **🔬 Deep Analysis** button එක:
 - Indicators 15 (EMA 200, EMA 20/50, ADX/DI, Ichimoku, Supertrend, RSI, MACD, Stochastic, Momentum, Bollinger, Support/Resistance, Market structure, Pivot, Fibonacci, Candlestick pattern) × timeframes 4 (15m, 1h, 4h, Daily) ඡන්ද table එක

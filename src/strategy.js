@@ -185,3 +185,64 @@ function stats(trades, tpR = 3) {
 }
 
 module.exports = { features, STRATEGIES, simulate, stats, ema, rsiSeries, atrSeries, adxSeries };
+
+// ---------- Trade modes (research/wr.py sim2, ported 1:1) ----------
+//  normal    — market entry next open, SL / target
+//  breakeven — + move SL to entry (+0.05R) once price reaches 1R
+//  highwin   — limit entry 0.5 ATR better (wait max 4 candles), close 50% at 1R and move SL to entry
+const MODES = {
+  normal: { entry: 'market', part: 0, p1: 1, be: null },
+  breakeven: { entry: 'market', part: 0, p1: 1, be: 1 },
+  highwin: { entry: 'limit', lim: 0.5, limBars: 4, part: 0.5, p1: 1, be: 1 },
+};
+
+function simulateMode(F, sig, sl, ex = {}, mode = 'normal', costAt = () => 0, start = 250) {
+  const M = MODES[mode] || MODES.normal;
+  const tp = ex.tpR ?? 3;
+  const { o, h, l, c, atr: a } = F;
+  const n = c.length, trades = [];
+  let skipped = 0, i = start;
+  while (i < n - 2) {
+    const d = sig[i];
+    if (!d || !(sl[i] > 0)) { i++; continue; }
+    let risk = sl[i], e, j0;
+    if (M.entry === 'market') { e = o[i + 1]; j0 = i + 1; }
+    else {
+      const target = c[i] - d * M.lim * a[i];
+      j0 = null;
+      for (let j = i + 1; j < Math.min(n, i + 1 + M.limBars); j++) {
+        if (d === 1 ? l[j] <= target : h[j] >= target) { j0 = j; break; }
+      }
+      if (j0 == null) { skipped++; i++; continue; }
+      e = target;
+      risk = Math.max(risk - M.lim * a[i], 0.5 * a[i]);
+    }
+    let stop = e - d * risk;
+    const tpp = e + d * tp * risk, p1p = e + d * M.p1 * risk;
+    const costR = costAt(i, e) / risk;
+    let gotPart = false, moved = false, out = null, reason = '', j = j0;
+    for (; j < n; j++) {
+      if (d === 1 ? l[j] <= stop : h[j] >= stop) {
+        const rem = (d * (stop - e)) / risk;
+        out = (gotPart ? M.part * M.p1 : 0) + (1 - (gotPart ? M.part : 0)) * rem;
+        reason = moved ? (gotPart ? 'PART+BE' : 'BE') : 'SL';
+        break;
+      }
+      if (M.part > 0 && !gotPart && (d === 1 ? h[j] >= p1p : l[j] <= p1p)) gotPart = true;
+      if (d === 1 ? h[j] >= tpp : l[j] <= tpp) {
+        out = (gotPart ? M.part * M.p1 : 0) + (1 - (gotPart ? M.part : 0)) * tp;
+        reason = 'TP'; break;
+      }
+      const fav = (d * ((d === 1 ? h[j] : l[j]) - e)) / risk;
+      if (M.be != null && !moved && fav >= M.be) { stop = e + d * 0.05 * risk; moved = true; }
+    }
+    if (out == null) break;
+    trades.push({ i, side: d === 1 ? 'BUY' : 'SELL', entryTime: F.time[j0], exitTime: F.time[j], entry: e, stop: e - d * risk, target: tpp, r: out - costR, gross: out, cost: costR, reason });
+    i = j;
+  }
+  trades.skipped = skipped;
+  return trades;
+}
+
+module.exports.MODES = MODES;
+module.exports.simulateMode = simulateMode;

@@ -248,7 +248,7 @@ async function deepAnalyze({ symbol, tf, getCandles, getPrice, strategySignal, l
   const g = grade({ strategy: strategySignal, statusCode: stStatus?.code, deepAction: action, ml, soonNews: soon });
   if (['BUY', 'SELL'].includes(strategySignal?.action) && strategySignal.signalTime) {
     logGrade({ time: new Date().toISOString(), symbol, tf, signalTime: strategySignal.signalTime, grade: g.grade, status: stStatus?.code,
-      strategy: { action: strategySignal.action, entry: strategySignal.entry, stopLoss: strategySignal.stopLoss, target: strategySignal.tp2 } });
+      strategy: { action: strategySignal.action, entry: strategySignal.entry, stopLoss: strategySignal.stopLoss, target: strategySignal.tp2, mode: strategySignal.mode || 'normal', fillBy: strategySignal.limitExpires || null } });
   }
   const out = {
     ok: true, time: new Date().toISOString(), symbol, tf, price, score: +score.toFixed(3), confidence: Math.round(Math.abs(score) * 100),

@@ -1,5 +1,5 @@
 /* Novi FX frontend */
-const S = { symbol: 'XAUUSD', tf: '1h', cfg: null, signal: null, lastCandle: null, priceLines: [], scan: {}, prices: {}, live: {}, tfSec: 3600, lastCandleLoad: 0 };
+const S = { mode: 'normal', symbol: 'XAUUSD', tf: '1h', cfg: null, signal: null, lastCandle: null, priceLines: [], scan: {}, prices: {}, live: {}, tfSec: 3600, lastCandleLoad: 0 };
 const TF_SEC = { '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
 const $ = (id) => document.getElementById(id);
 
@@ -98,6 +98,7 @@ function startStream() {
 
 function onLiveTick(p, tSec) {
   setHeaderPrice(p);
+  checkPlanAlert(p);
   const c = S.lastCandle;
   if (c) {
     if (tSec >= c.time + S.tfSec) {
@@ -117,6 +118,15 @@ function onLiveTick(p, tSec) {
 function signalStatus(sig, price, nowSec) {
   if (!sig || !['BUY', 'SELL'].includes(sig.action) || price == null) return null;
   const dir = sig.action === 'BUY' ? 1 : -1;
+  if (sig.mode === 'highwin') {
+    if (sig.outcome === 'SL') return { code: 'INVALID', text: 'Stop loss එක වැදුනා — signal එක ඉවරයි' };
+    if (sig.outcome === 'TP1') return { code: 'DONE', text: 'Trade එක 1R දක්වා ගියා (50% ලාභය ගත්තා) — අලුතෙන් entry නැහැ' };
+    if (sig.filled) return { code: 'FILLED', text: 'Limit order එක fill වුණා — trade එක open. අලුතෙන් entry ගන්න එපා' };
+    if (dir * (price - sig.stopLoss) <= 0) return { code: 'INVALID', text: 'මිල SL එක පහු කළා — signal එක cancel' };
+    if (nowSec > sig.limitExpires) return { code: 'EXPIRED', text: 'Candles 4ක් ඇතුළත limit මිලට ආවේ නැහැ — order එක delete කරන්න' };
+    if (dir * (price - sig.entry) <= 0) return { code: 'FILLED', text: 'මිල limit එකට ආවා — order එක fill වෙලා ඇති' };
+    return { code: 'LIMIT', text: `${sig.action} LIMIT order එක ${fmt(sig.entry)} ට දාන්න — ${dt(sig.limitExpires * 1000)} දක්වා valid` };
+  }
   if (sig.outcome === 'SL') return { code: 'INVALID', text: 'Stop loss එක වැදුනා — signal එක cancel' };
   if (sig.outcome === 'TP1') return { code: 'DONE', text: 'මිල 1.5R දක්වා ගිහින් — දැන් entry ගන්න පරක්කුයි' };
   if (dir * (price - sig.stopLoss) <= 0) return { code: 'INVALID', text: 'මිල SL එක පහු කළා — signal එක cancel' };
@@ -150,6 +160,54 @@ const PROFILE = {
   disabled: { cls: 'bad', label: '⛔ Disabled', text: 'Research එකට අනුව ලාභ නැහැ — signals off' },
 };
 const STRAT_NAME = { pullback: 'Trend Pullback', breakout: 'Trend Breakout' };
+const MODE_NAME = { normal: 'Normal', breakeven: '🛡️ Breakeven', highwin: '🎯 High Win Rate' };
+const MODE_INFO = {
+  normal: 'Signal එකේ මිලට entry · SL / Target විතරයි',
+  breakeven: 'ලාභය 1R වුණාම SL එක entry එකට — පාඩු trades අඩුයි, ලාභය ≈ එහෙමමයි',
+  highwin: 'Limit entry + 1R දී 50% close + SL → entry — win rate 60–69%, ලාභය ~35–45% අඩුයි',
+};
+function renderModeBar() {
+  $('modeBar').innerHTML = Object.keys(MODE_NAME).map((m) => `<button class="${m === S.mode ? 'active' : ''}" data-mode="${m}" title="${MODE_INFO[m]}">${MODE_NAME[m]}</button>`).join('')
+    + `<div class="small muted" style="width:100%">${MODE_INFO[S.mode]}</div>`;
+  document.querySelectorAll('#modeBar button').forEach((b) => (b.onclick = () => {
+    S.mode = b.dataset.mode; store('novi-fx-mode', S.mode); renderModeBar();
+    S.gradeKey = null; S.today = null; S.alerted = {};
+    if (S.mode !== 'normal') askNotify();
+    loadSignal(); loadMtf(); loadToday(false);
+    if (S.bt) $('btOut').innerHTML = '<span class="muted small">Mode එක වෙනස් වුණා — "Backtest run කරන්න" ආයෙත් ඔබන්න.</span>';
+  }));
+}
+function planSteps(sig) {
+  const d = sig.action, P = sig.plan || {};
+  if (sig.mode === 'highwin') return `<ol class="steps">
+    <li><b>${d} LIMIT</b> order එකක් <b class="mono">${fmt(P.limit)}</b> ට දාන්න <span class="muted">(${dt(sig.limitExpires * 1000)} දක්වා — ඊට පස්සේ delete කරන්න)</span></li>
+    <li>Stop Loss: <b class="mono neg">${fmt(sig.stopLoss)}</b> · Take Profit: <b class="mono pos">${fmt(P.target)}</b></li>
+    <li>මිල <b class="mono">${fmt(P.partialAt)}</b> (1R) ට ආවම: <b>lots වලින් භාගයක් close</b> කරන්න</li>
+    <li>ඒ වෙලාවෙම ඉතුරු භාගයේ SL එක <b class="mono">${fmt(P.beTo)}</b> (entry) ට ගෙනියන්න</li></ol>`;
+  if (sig.mode === 'breakeven') return `<ol class="steps">
+    <li>${d} entry · SL <b class="mono neg">${fmt(sig.stopLoss)}</b> · Target <b class="mono pos">${fmt(P.target)}</b></li>
+    <li>මිල <b class="mono">${fmt(P.beAt)}</b> (1R) ට ආවම SL එක <b class="mono">${fmt(P.beTo)}</b> (entry) ට ගෙනියන්න</li></ol>`;
+  return '';
+}
+function toast(msg, notify) {
+  const t = document.createElement('div'); t.className = 'toast'; t.innerHTML = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 12000); t.onclick = () => t.remove();
+  if (notify) { try { if (window.Notification && Notification.permission === 'granted') new Notification('Novi FX', { body: t.textContent }); } catch {} }
+}
+function askNotify() { try { if (window.Notification && Notification.permission === 'default') Notification.requestPermission(); } catch {} }
+// 1R alert for the current signal (breakeven / highwin)
+function checkPlanAlert(price) {
+  const sig = S.signal;
+  if (!sig || S.mode === 'normal' || !sig.plan || !['BUY', 'SELL'].includes(sig.action)) return;
+  const lvl = sig.mode === 'highwin' ? sig.plan.partialAt : sig.plan.beAt;
+  const d = sig.action === 'BUY' ? 1 : -1;
+  const key = `${S.symbol}|${S.tf}|${sig.signalTime}`;
+  S.alerted = S.alerted || {};
+  if (S.alerted[key] || d * (price - lvl) < 0) return;
+  if (sig.mode === 'highwin' && !(sig.filled || d * (price - sig.entry) > 0)) return;
+  S.alerted[key] = true;
+  toast(`🔔 <b>${S.symbol} 1R (${fmt(lvl)}) ට ආවා!</b><br>${sig.mode === 'highwin' ? 'Lots වලින් භාගයක් close කරලා, ' : ''}SL එක ${fmt(sig.plan.beTo)} (entry) ට ගෙනියන්න.`, true);
+}
 const profBadge = (st) => `<span class="badge ${PROFILE[st]?.cls || ''}">${PROFILE[st]?.label || st}</span>`;
 
 function profileLine(p) {
@@ -168,16 +226,16 @@ function drawSignalLines(sig) {
   S.priceLines = [];
   if (!sig || !['BUY', 'SELL'].includes(sig.action)) return;
   const add = (price, color, title) => S.priceLines.push(candleS.createPriceLine({ price, color, title, lineWidth: 1, lineStyle: 2, axisLabelVisible: true }));
-  add(sig.zone[0], 'rgba(59,130,246,.5)', 'Zone');
-  add(sig.zone[1], 'rgba(59,130,246,.5)', 'Zone');
-  add(sig.entry, '#3b82f6', 'Entry');
+  if (sig.mode !== 'highwin') { add(sig.zone[0], 'rgba(59,130,246,.5)', 'Zone'); add(sig.zone[1], 'rgba(59,130,246,.5)', 'Zone'); }
+  add(sig.entry, '#3b82f6', sig.mode === 'highwin' ? 'Limit' : 'Entry');
   add(sig.stopLoss, '#ef4444', 'SL');
-  add(sig.tp1, 'rgba(34,197,94,.6)', '1.5R');
+  add(sig.tp1, 'rgba(34,197,94,.6)', sig.mode === 'highwin' ? '1R 50%' : sig.mode === 'breakeven' ? '1.5R' : '1.5R');
+  if (sig.mode === 'breakeven' && sig.plan) add(sig.plan.beAt, '#f59e0b', '1R→BE');
   add(sig.tp2, '#22c55e', 'Target');
 }
 
 async function loadSignal() {
-  const sig = await api(`/api/signal?symbol=${S.symbol}&tf=${S.tf}`);
+  const sig = await api(`/api/signal?symbol=${S.symbol}&tf=${S.tf}&mode=${S.mode}`);
   if (sig.livePrice != null && S.prices[S.symbol] == null) S.prices[S.symbol] = sig.livePrice;
   S.signal = sig;
   $('sigTf').textContent = `${S.symbol} · ${S.tf}`;
@@ -191,11 +249,12 @@ async function loadSignal() {
     <div id="sigStatus" class="status"></div>
     <div id="sigGrade"></div>
     <div class="small muted" style="margin:4px 0">Signal එක ආවේ ${ago} (${dt(sig.signalTime * 1000)})</div>
+    ${planSteps(sig)}
     <div class="levels mono">
-      <span>Entry zone</span><span>${fmt(sig.zone[0])} – ${fmt(sig.zone[1])}</span>
-      <span>Entry</span><span>${fmt(sig.entry)}</span>
+      ${sig.mode === 'highwin' ? `<span>Limit entry</span><span>${fmt(sig.entry)}</span><span class="muted">Signal close</span><span class="muted">${fmt(sig.marketEntry)}</span>` : `<span>Entry zone</span><span>${fmt(sig.zone[0])} – ${fmt(sig.zone[1])}</span>
+      <span>Entry</span><span>${fmt(sig.entry)}</span>`}
       <span>Stop Loss</span><span class="neg">${fmt(sig.stopLoss)}</span>
-      <span>1.5R (partial)</span><span class="pos">${fmt(sig.tp1)}</span>
+      <span>${sig.mode === 'highwin' ? '1R (50% close)' : '1.5R'}</span><span class="pos">${fmt(sig.tp1)}</span>
       <span>Target (${sig.riskReward}R)</span><span class="pos">${fmt(sig.tp2)}</span>
     </div>` : '';
   const head = sig.action === 'OFF' ? 'OFF' : sig.action;
@@ -215,7 +274,7 @@ async function loadSignal() {
 
 async function loadMtf() {
   try {
-    const m = await api(`/api/mtf?symbol=${S.symbol}`);
+    const m = await api(`/api/mtf?symbol=${S.symbol}&mode=${S.mode}`);
     $('mtf').innerHTML = Object.entries(m).map(([tf, v]) =>
       `<div>${tf}<br><span class="pill ${v.action || 'WAIT'}">${v.action || 'ERR'}</span>${v.status ? `<br><span class="muted">${v.status}</span>` : ''}${v.profile ? `<br><span class="muted">${(PROFILE[v.profile]?.label || '').split(' ')[0]}</span>` : ''}</div>`).join('');
   } catch { $('mtf').innerHTML = ''; }
@@ -274,7 +333,7 @@ $('btnExplain').onclick = async () => {
   b.disabled = true;
   $('aiOut').innerHTML = '<div class="muted">🔎 News search කරනවා, market එක analyze කරනවා… (තත්පර 20–60)</div>';
   try {
-    const r = await api('/api/explain', { method: 'POST', body: { symbol: S.symbol, tf: S.tf } });
+    const r = await api('/api/explain', { method: 'POST', body: { symbol: S.symbol, tf: S.tf, mode: S.mode } });
     S.ai = r;
     $('aiOut').innerHTML = renderAI(r);
     const u = $('btnUseAI');
@@ -301,7 +360,7 @@ async function loadGrade() {
   const box = $('sigGrade');
   if (!box) return;
   box.innerHTML = '<div class="small muted">Grade එක ගණනය කරනවා…</div>';
-  try { const g = await api(`/api/grade?symbol=${S.symbol}&tf=${S.tf}`); if ($('sigGrade')) $('sigGrade').innerHTML = gradeBox(g); }
+  try { const g = await api(`/api/grade?symbol=${S.symbol}&tf=${S.tf}&mode=${S.mode}`); if ($('sigGrade')) $('sigGrade').innerHTML = gradeBox(g); }
   catch (e) { box.innerHTML = `<div class="small neg">${esc(e.message)}</div>`; }
 }
 
@@ -354,7 +413,7 @@ $('btnDeep').onclick = async () => {
   const b = $('btnDeep'); b.disabled = true;
   $('deepOut').innerHTML = '<div class="muted">🔬 Timeframes 4ක indicators ගණනය කරනවා, news බලනවා…</div>';
   try {
-    const r = await api('/api/deep', { method: 'POST', body: { symbol: S.symbol, tf: S.tf } });
+    const r = await api('/api/deep', { method: 'POST', body: { symbol: S.symbol, tf: S.tf, mode: S.mode } });
     $('deepOut').innerHTML = renderDeep(r);
     const u = $('btnUseDeep');
     if (u) u.onclick = () => {
@@ -435,7 +494,7 @@ async function loadToday(force) {
   const box = $('todayBox');
   if (box && (force || !S.today)) box.innerHTML = '<div class="muted small">✅ Verified markets check කරනවා… (පළවෙනි වතාවට විනාඩියක් විතර යන්න පුළුවන්)</div>';
   try {
-    const t = await api('/api/today' + (force ? '?force=1' : ''));
+    const t = await api(`/api/today?mode=${S.mode}` + (force ? '&force=1' : ''));
     S.today = t;
     const active = t.signals.filter((x) => x.grade?.grade === 'A').length;
     $('todayCount').textContent = t.signals.length ? `${active}/${t.signals.length}` : '';
@@ -446,7 +505,7 @@ async function loadToday(force) {
         <div class="tc-top">${gradeBadge(x.grade)} <b>${x.symbol}</b> <span class="muted">${x.tf}</span> <span class="pill ${x.action}">${x.action}</span> ${profBadge(x.profile)}</div>
         ${x.grade?.advice ? `<div class="small" title="${esc((x.grade.reasons || []).map((r) => (r.ok === false ? '✗ ' : r.ok ? '✓ ' : '• ') + r.text).join('\n'))}">${esc(x.grade.advice)}</div>` : ''}
         <div class="status ${x.status}" style="margin:4px 0"><b>${x.status}</b> · ${x.statusText}</div>
-        <div class="mono small">Zone ${fmt(x.zone[0], x.symbol)} – ${fmt(x.zone[1], x.symbol)} · <span class="neg">SL ${fmt(x.stopLoss, x.symbol)}</span> · <span class="pos">Target ${fmt(x.target, x.symbol)}</span></div>
+        <div class="mono small">${x.mode === 'highwin' ? `LIMIT ${fmt(x.entry, x.symbol)} · 1R ${fmt(x.tp1, x.symbol)}` : `Zone ${fmt(x.zone[0], x.symbol)} – ${fmt(x.zone[1], x.symbol)}`} · <span class="neg">SL ${fmt(x.stopLoss, x.symbol)}</span> · <span class="pos">Target ${fmt(x.target, x.symbol)}</span></div>
         <div class="small muted">දැන් ${fmt(x.price, x.symbol)} · signal එක ${ago(x.signalTime)} · ${STRAT_NAME[x.strategy] || x.strategy}</div>
       </div>`).join('');
     box.innerHTML = `<div class="panel-title" style="padding:4px 0">✅ අද Verified Signals <span class="muted small">update: ${dt(t.time)}</span> <button id="btnTodayRef" class="sm ghost">Refresh</button></div>
@@ -464,7 +523,7 @@ async function runScan() {
   $('btnScan').disabled = true;
   $('scanBox').innerHTML = '<span class="muted">Scan කරනවා… (markets 17 — විනාඩියක් විතර යන්න පුළුවන්)</span>';
   try {
-    const rows = await api(`/api/scan?tf=${S.tf}`);
+    const rows = await api(`/api/scan?tf=${S.tf}&mode=${S.mode}`);
     S.scan = Object.fromEntries(rows.map((r) => [r.symbol, r]));
     renderWatchlist();
     const onlyV = store('novi-fx-onlyv') !== '0';
@@ -498,7 +557,7 @@ const usd = (v) => `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
 
 function streaks(tr) {
   let maxL = 0, maxW = 0, l = 0, w = 0;
-  for (const t of tr) { if (t.r > 0) { w++; l = 0; } else { l++; w = 0; } maxL = Math.max(maxL, l); maxW = Math.max(maxW, w); }
+  for (const t of tr) { if (t.r > 0.1) { w++; l = 0; } else if (t.r < -0.1) { l++; w = 0; } maxL = Math.max(maxL, l); maxW = Math.max(maxW, w); }
   return { maxL, maxW };
 }
 
@@ -510,11 +569,12 @@ function renderBacktest() {
   const risk$ = (start * riskPct) / 100;
   const months = Math.max(0.1, (s.to - s.from) / (30.44 * 86400));
   const per = (s.trades / months).toFixed(1);
-  const wins = tr.filter((t) => t.r > 0), losses = tr.filter((t) => t.r <= 0);
+  const wins = tr.filter((t) => t.r > 0.1), bes = tr.filter((t) => Math.abs(t.r) <= 0.1), losses = tr.filter((t) => t.r < -0.1);
   const grossWin = wins.reduce((a, t) => a + t.gross, 0) * risk$;
+  const grossBE = bes.reduce((a, t) => a + t.gross, 0) * risk$;
   const grossLoss = losses.reduce((a, t) => a + t.gross, 0) * risk$;
   const costs = tr.reduce((a, t) => a + t.cost, 0) * risk$;
-  const net = grossWin + grossLoss - costs;
+  const net = grossWin + grossBE + grossLoss - costs;
   const tp = p.exits.tpR;
   const allTP = wins.every((t) => Math.abs(t.gross - tp) < 1e-6), allSL = losses.every((t) => Math.abs(t.gross + 1) < 1e-6);
   const { maxL, maxW } = streaks(tr);
@@ -532,7 +592,9 @@ function renderBacktest() {
 
   $('btOut').innerHTML = `
     <div class="verdict v-${light}"><div class="v-light">${light}</div><div><div class="v-title">${title}</div><div>${sentence}</div>
-      <div class="small muted">${S.symbol} ${S.tf} · ${STRAT_NAME[p.strategy] || p.strategy} · ${day(s.from)} → ${day(s.to)} · මාසෙකට signals ${per}ක් විතර</div></div></div>
+      <div class="small muted">${S.symbol} ${S.tf} · ${STRAT_NAME[p.strategy] || p.strategy} · <b>${MODE_NAME[s.mode || 'normal']}</b> · ${day(s.from)} → ${day(s.to)} · මාසෙකට trades ${per}ක් විතර</div>
+      <div class="small">✅ දිනුම් <b class="pos">${Math.round((wins.length / Math.max(1, s.trades)) * 100)}%</b> · ⚪ Breakeven <b>${Math.round((bes.length / Math.max(1, s.trades)) * 100)}%</b> · ❌ පාඩු <b class="neg">${Math.round((losses.length / Math.max(1, s.trades)) * 100)}%</b>${s.notFilled ? ` · <span class="muted">Limit fill නොවුණු signals ${s.notFilled}</span>` : ''}</div></div></div>
+    <div class="bt-sec"><button id="btnCompare" class="sm ghost">⚖️ Modes 3ම compare කරන්න</button><div id="cmpOut"></div></div>
 
     <div class="bt-sec">
       <div class="bt-h">💵 මගේ සල්ලි වලට මොකද වෙන්නේ?</div>
@@ -541,6 +603,7 @@ function renderBacktest() {
         <span class="muted">= trade එකකට <b>${usd(risk$)}</b> risk (SL වැදුනොත් නැති වෙන ගාණ)</span></div>
       <table class="calc">
         <tr><td>✅ ${winLine}</td><td class="pos">${money0(grossWin)}</td></tr>
+        ${bes.length ? `<tr><td>⚪ Breakeven ${bes.length} (SL entry එකට ගිහින් ~$0)</td><td>${money0(grossBE)}</td></tr>` : ''}
         <tr><td>❌ ${lossLine}</td><td class="neg">${money0(grossLoss)}</td></tr>
         <tr><td>💸 Trading costs (spread/commission) — trades ${s.trades}</td><td class="neg">${money0(-costs)}</td></tr>
         <tr class="tot"><td>අන්තිම ලාභය / පාඩුව</td><td class="${cls(net)}">${money0(net)}</td></tr>
@@ -551,7 +614,7 @@ function renderBacktest() {
     <div class="bt-sec"><div class="bt-h">📈 Balance එක වෙනස් වුණ හැටි</div><div id="btCurve" style="height:150px"></div></div>
 
     <div class="bt-sec"><div class="bt-h">🟩🟥 දිනුම් / පැරදුම් (පිළිවෙළට)</div>
-      <div class="sq">${tr.map((t) => `<span class="${t.r > 0 ? 'w' : 'l'}" title="${day(t.entryTime)} ${t.side} ${money0(t.r * risk$)}"></span>`).join('')}</div>
+      <div class="sq">${tr.map((t) => `<span class="${t.r > 0.1 ? 'w' : t.r < -0.1 ? 'l' : 'b'}" title="${day(t.entryTime)} ${t.side} ${money0(t.r * risk$)}"></span>`).join('')}</div>
       <div class="small">එක දිගට පැරදුණු වැඩිම වාර ගණන: <b class="neg">${maxL}</b> (${money0(-maxL * risk$)}) · එක දිගට දිනපු වැඩිම: <b class="pos">${maxW}</b>
         <br><span class="muted">පාඩු ${maxL}ක් එක දිගට එනකොටත් ඉවසලා ඉන්න ඕන — ඒක මේ strategy එකේ සාමාන්‍ය දෙයක්.</span></div></div>
 
@@ -584,6 +647,25 @@ function renderBacktest() {
   $('btStart').onchange = (e) => { store('novi-fx-bt-start', e.target.value); renderBacktest(); };
   $('btRisk').onchange = (e) => { store('novi-fx-bt-risk', e.target.value); renderBacktest(); };
   $('btnMarkers').onclick = () => { S.markersOn = !S.markersOn; drawTradeMarkers(); renderBacktest(); };
+  $('btnCompare').onclick = compareModes;
+}
+
+async function compareModes() {
+  const box = $('cmpOut'); box.innerHTML = '<span class="muted small">Modes 3ම backtest කරනවා…</span>';
+  const start = Math.max(1, +(store('novi-fx-bt-start') || 1000)), risk$ = (start * Math.max(0.1, +(store('novi-fx-bt-risk') || 1))) / 100;
+  try {
+    const rows = [];
+    for (const m of ['normal', 'breakeven', 'highwin']) {
+      const r = await api(`/api/backtest?symbol=${S.symbol}&tf=${S.tf}&mode=${m}`);
+      const tr = r.trades, n = Math.max(1, tr.length);
+      const w = tr.filter((t) => t.r > 0.1).length, b = tr.filter((t) => Math.abs(t.r) <= 0.1).length, l = tr.filter((t) => t.r < -0.1).length;
+      rows.push({ m, n: tr.length, w, b, l, net: r.stats.netR * risk$, maxL: streaks(tr).maxL });
+    }
+    const best = rows.reduce((a, x) => (x.net > a.net ? x : a));
+    box.innerHTML = `<table class="wrap"><tr><th>Mode</th><th>Trades</th><th>✅ දිනුම්</th><th>⚪ $0</th><th>❌ පාඩු</th><th>එක දිගට පාඩු (max)</th><th>ලාභය</th></tr>
+      ${rows.map((x) => `<tr${x.m === S.mode ? ' style="background:var(--panel2)"' : ''}><td>${MODE_NAME[x.m]}</td><td>${x.n}</td><td class="pos">${Math.round((x.w / Math.max(1, x.n)) * 100)}%</td><td>${Math.round((x.b / Math.max(1, x.n)) * 100)}%</td><td class="neg">${Math.round((x.l / Math.max(1, x.n)) * 100)}%</td><td>${x.maxL}</td><td class="${cls(x.net)}"><b>${money0(x.net)}</b>${x === best ? ' 🏆' : ''}</td></tr>`).join('')}
+      </table><p class="small muted">${S.symbol} ${S.tf}, $${start} · trade එකකට ${usd(risk$)} risk. Mode එක තෝරන්න Signal card එකේ උඩ buttons.</p>`;
+  } catch (e) { box.innerHTML = `<span class="neg small">${esc(e.message)}</span>`; }
 }
 
 function drawTradeMarkers() {
@@ -599,7 +681,7 @@ function drawTradeMarkers() {
 $('btnBacktest').onclick = async () => {
   $('btOut').innerHTML = '<span class="muted">Backtest කරනවා… (candles 5000ක් ගන්නවා)</span>';
   try {
-    const r = await api(`/api/backtest?symbol=${S.symbol}&tf=${S.tf}`);
+    const r = await api(`/api/backtest?symbol=${S.symbol}&tf=${S.tf}&mode=${S.mode}`);
     S.bt = { ...r, symbol: S.symbol, tf: S.tf };
     renderBacktest();
     drawTradeMarkers();
@@ -639,7 +721,7 @@ async function loadPaper() {
     const p = await api('/api/paper');
     $('acct').innerHTML = `<div>Balance<b>$${p.balance.toFixed(2)}</b></div><div>Equity<b>$${p.equity.toFixed(2)}</b></div><div>Floating<b class="${cls(p.floating)}">${money(p.floating)}</b></div>`;
     $('tab-positions').innerHTML = p.positions.length ? `<table><tr><th>#</th><th>Symbol</th><th>Side</th><th>Lots</th><th>Entry</th><th>Price</th><th>SL</th><th>TP</th><th>P&L $</th><th></th></tr>
-      ${p.positions.map((x) => `<tr><td>${x.id}</td><td>${x.symbol}</td><td class="${x.side === 'BUY' ? 'pos' : 'neg'}">${x.side}</td><td>${x.lots}</td>
+      ${p.positions.map((x) => `<tr><td>${x.id}</td><td>${x.symbol}<br><span class="small muted">${MODE_NAME[x.mode || 'normal']}</span></td><td class="${x.side === 'BUY' ? 'pos' : 'neg'}">${x.side}${x.pending ? '<br><span class="small">⏳ LIMIT</span>' : ''}${x.events?.length ? `<br><span class="small muted">${x.events.map(esc).join(' · ')}</span>` : ''}</td><td>${x.lots}</td>
       <td class="mono">${fmt(x.entry, x.symbol)}</td><td class="mono">${fmt(x.price, x.symbol)}</td><td class="mono">${fmt(x.stopLoss, x.symbol)}</td><td class="mono">${fmt(x.takeProfit, x.symbol)}</td>
       <td class="mono ${cls(x.pnl)}">${money(x.pnl)}</td><td><button class="sm ghost" data-close="${x.id}">Close</button></td></tr>`).join('')}</table>`
       : '<span class="muted">Open positions නැහැ.</span>';
@@ -652,21 +734,29 @@ async function loadPaper() {
     const rb = $('btnReset');
     if (rb) rb.onclick = async () => { await api('/api/paper/reset', { method: 'POST' }); loadPaper(); };
     S.balance = p.balance;
+    S.seenEv = S.seenEv || {};
+    for (const x of p.positions) {
+      const n = (x.events || []).length, prev = S.seenEv[x.id];
+      if (prev != null && n > prev) toast(`🔔 Demo #${x.id} ${x.symbol}: ${esc(x.events.slice(prev).join(' · '))}`, true);
+      S.seenEv[x.id] = n;
+    }
   } catch (e) { $('acct').innerHTML = `<span class="neg small">${e.message}</span>`; }
 }
 
 $('btnUseSig').onclick = () => {
   const s = S.signal;
   if (!s || !['BUY', 'SELL'].includes(s.action)) { $('orderMsg').textContent = 'දැන් active signal එකක් නැහැ.'; return; }
-  S.orderZone = s.zone;
-  if (S.sigState && S.sigState !== 'ACTIVE') $('orderMsg').innerHTML = `<span class="neg">⚠️ Signal status: ${S.sigState} — දැන් entry ගන්න හොඳ නැහැ.</span>`;
+  S.orderZone = s.mode === 'highwin' ? null : s.zone;
+  S.orderLimit = s.mode === 'highwin' ? { side: s.action, price: s.entry, expires: s.limitExpires } : null;
+  if (s.mode === 'highwin') $('orderMsg').innerHTML = `<span class="muted">🎯 ${s.action} LIMIT @ ${fmt(s.entry)} — ${s.action} button එක ඔබන්න (මිල limit එකට ආවම demo එකේ trade එක open වෙනවා)</span>`;
+  if (S.sigState && !['ACTIVE', 'LIMIT'].includes(S.sigState)) $('orderMsg').innerHTML = `<span class="neg">⚠️ Signal status: ${S.sigState} — දැන් entry ගන්න හොඳ නැහැ.</span>`;
   $('oSL').value = (+s.stopLoss).toFixed(digits(S.symbol));
   $('oTP').value = (+s.tp2).toFixed(digits(S.symbol));
   $('btnCalc').click();
 };
 
 $('btnCalc').onclick = async () => {
-  const entry = S.prices[S.symbol] ?? S.lastCandle?.close, stop = +$('oSL').value;
+  const entry = (S.mode === 'highwin' && S.orderLimit ? S.orderLimit.price : null) ?? S.prices[S.symbol] ?? S.lastCandle?.close, stop = +$('oSL').value;
   if (!stop) { $('calcOut').textContent = 'මුලින් Stop Loss එක දාන්න.'; return; }
   try {
     const r = await api(`/api/size?symbol=${S.symbol}&entry=${entry}&stop=${stop}&balance=${S.balance || 10000}&riskPct=${$('oRisk').value}`);
@@ -681,11 +771,14 @@ async function placeOrder(side, force) {
   const zone = S.signal && S.signal.action === side && S.orderZone ? S.orderZone : null;
   try {
     const pos = await api('/api/paper/open', { method: 'POST', body: {
-      symbol: S.symbol, side, lots: +$('oLots').value, zone, force: !!force,
+      symbol: S.symbol, side, lots: +$('oLots').value, zone, force: !!force, mode: S.mode,
+      limitPrice: S.mode === 'highwin' && S.orderLimit && S.orderLimit.side === side ? S.orderLimit.price : null,
+      expiresAt: S.mode === 'highwin' && S.orderLimit && S.orderLimit.side === side ? S.orderLimit.expires : null,
       stopLoss: $('oSL').value ? +$('oSL').value : null, takeProfit: $('oTP').value ? +$('oTP').value : null,
       note: S.signal ? `signal ${S.signal.action} ${S.signal.score}` : '',
     } });
-    $('orderMsg').innerHTML = `<span class="pos">✓ ${side} ${pos.lots} ${pos.symbol} @ ${fmt(pos.entry)}</span>`;
+    $('orderMsg').innerHTML = pos.pending ? `<span class="pos">⏳ ${side} LIMIT ${pos.lots} ${pos.symbol} @ ${fmt(pos.entry)} දැම්මා (${MODE_NAME[pos.mode]})</span>`
+      : `<span class="pos">✓ ${side} ${pos.lots} ${pos.symbol} @ ${fmt(pos.entry)} (${MODE_NAME[pos.mode]})</span>`;
     if (!pos.stopLoss) $('orderMsg').innerHTML += '<br><span class="neg">⚠️ Stop loss නැතුව trade එකක්!</span>';
     switchTab('positions'); loadPaper();
   } catch (e) {
@@ -782,6 +875,8 @@ function loop() {
   S.symbol = S.cfg.instruments[store('novi-fx-sym')] ? store('novi-fx-sym') : 'XAUUSD';
   S.tf = S.cfg.timeframes.includes(store('novi-fx-tf')) ? store('novi-fx-tf') : '1h';
   S.tfSec = TF_SEC[S.tf];
+  S.mode = ['normal', 'breakeven', 'highwin'].includes(store('novi-fx-mode')) ? store('novi-fx-mode') : 'normal';
+  renderModeBar();
   startStream();
   $('symName').textContent = S.symbol;
   const b = [];

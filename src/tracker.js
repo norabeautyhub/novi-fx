@@ -25,7 +25,7 @@ function costOf(symbol, price) {
 }
 
 // candles: 1h candles covering the period. t0 = analysis time (sec)
-function evalTrade(symbol, t, t0, candles) {
+function evalTrade(symbol, t, t0, candles, mode = 'normal') {
   if (!t || !['BUY', 'SELL'].includes(t.action) || !(t.entry > 0) || !(t.sl > 0) || !(t.tp > 0)) return null;
   const d = t.action === 'BUY' ? 1 : -1;
   const risk = Math.abs(t.entry - t.sl);
@@ -36,18 +36,32 @@ function evalTrade(symbol, t, t0, candles) {
   const start = candles.findIndex((c) => c.time >= t0);
   if (start < 0) return { result: 'WAITING', text: 'තාම data නැහැ' };
   let fillAt = -1;
+  const fillLimit = t.fillBy ? t.fillBy - t0 : FILL_HOURS * 3600;
   for (let i = start; i < candles.length; i++) {
-    if (candles[i].time - t0 > FILL_HOURS * 3600) break;
+    if (candles[i].time - t0 > fillLimit) break;
     if (candles[i].low <= t.entry && candles[i].high >= t.entry) { fillAt = i; break; }
   }
   if (fillAt < 0) {
     const last = candles[candles.length - 1];
-    return last.time - t0 > FILL_HOURS * 3600 ? { result: 'NOT_FILLED', text: 'Entry මිලට ආවේ නැහැ' } : { result: 'PENDING', text: 'Entry මිලට එනකම්' };
+    return last.time - t0 > fillLimit ? { result: 'NOT_FILLED', text: 'Entry මිලට ආවේ නැහැ' } : { result: 'PENDING', text: 'Entry මිලට එනකම්' };
   }
+  // trade management by mode: breakeven = SL to entry at 1R; highwin = 50% off at 1R + SL to entry
+  const be = mode === 'breakeven' || mode === 'highwin', part = mode === 'highwin' ? 0.5 : 0;
+  let stop = t.sl, gotPart = false, moved = false;
+  const p1 = t.entry + d * risk;
   for (let i = fillAt; i < candles.length; i++) {
     const c = candles[i];
-    if (d === 1 ? c.low <= t.sl : c.high >= t.sl) return { result: 'LOSS', r: +(-1 - costR).toFixed(2), closedAt: c.time };
-    if (d === 1 ? c.high >= t.tp : c.low <= t.tp) return { result: 'WIN', r: +(rr - costR).toFixed(2), closedAt: c.time };
+    if (d === 1 ? c.low <= stop : c.high >= stop) {
+      const rem = (d * (stop - t.entry)) / risk;
+      const r = (gotPart ? part : 0) + (1 - (gotPart ? part : 0)) * rem - costR;
+      return { result: r > 0.1 ? 'WIN' : r >= -0.1 ? 'BE' : 'LOSS', r: +r.toFixed(2), closedAt: c.time };
+    }
+    if (part && !gotPart && (d === 1 ? c.high >= p1 : c.low <= p1)) gotPart = true;
+    if (d === 1 ? c.high >= t.tp : c.low <= t.tp) {
+      const r = (gotPart ? part : 0) + (1 - (gotPart ? part : 0)) * rr - costR;
+      return { result: 'WIN', r: +r.toFixed(2), closedAt: c.time };
+    }
+    if (be && !moved && (d === 1 ? c.high >= p1 : c.low <= p1)) { stop = t.entry + d * 0.05 * risk; moved = true; }
     if (c.time - candles[fillAt].time > MAX_HOLD_H * 3600) {
       const r = (d * (c.close - t.entry)) / risk - costR;
       return { result: r > 0 ? 'WIN' : 'LOSS', r: +r.toFixed(2), closedAt: c.time, timeout: true };
@@ -58,15 +72,16 @@ function evalTrade(symbol, t, t0, candles) {
 }
 
 function score(rows) {
-  const closed = rows.filter((x) => x && (x.result === 'WIN' || x.result === 'LOSS'));
+  const closed = rows.filter((x) => x && (x.result === 'WIN' || x.result === 'LOSS' || x.result === 'BE'));
   const wins = closed.filter((x) => x.result === 'WIN').length;
   const netR = closed.reduce((a, x) => a + x.r, 0);
   return {
     signals: rows.filter(Boolean).length,
-    closed: closed.length, wins, losses: closed.length - wins,
+    closed: closed.length, wins, losses: closed.filter((x) => x.result === 'LOSS').length,
     open: rows.filter((x) => x && x.result === 'OPEN').length,
     notFilled: rows.filter((x) => x && x.result === 'NOT_FILLED').length,
     pending: rows.filter((x) => x && (x.result === 'PENDING' || x.result === 'WAITING')).length,
+    breakeven: closed.filter((x) => x.result === 'BE').length,
     winRate: closed.length ? +((wins / closed.length) * 100).toFixed(1) : null,
     netR: +netR.toFixed(2),
   };
@@ -119,7 +134,7 @@ async function track(getCandles) {
     const cs = candleCache[g.symbol];
     const t0 = Math.floor(Date.parse(g.time) / 1000);
     const st = g.strategy || {};
-    gradeRows.push({ ...g, outcome: cs ? evalTrade(g.symbol, { action: st.action, entry: st.entry, sl: st.stopLoss, tp: st.target }, t0, cs) : null });
+    gradeRows.push({ ...g, outcome: cs ? evalTrade(g.symbol, { action: st.action, entry: st.entry, sl: st.stopLoss, tp: st.target, fillBy: st.fillBy }, t0, cs, st.mode || 'normal') : null });
   }
   const byGrade = {};
   for (const G of ['A', 'B', 'C']) byGrade[G] = score(gradeRows.filter((r) => r.grade === G).map((r) => r.outcome));

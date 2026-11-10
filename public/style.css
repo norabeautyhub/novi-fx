@@ -137,3 +137,12 @@ ul.news li { margin-bottom: 3px; }
 .gbox.gA { border-color: #fbbf24; background: rgba(251,191,36,.08); } .gbox.gB { border-color: #93c5fd; } .gbox.gC { opacity: .9; }
 .gtitle { font-weight: 800; margin-bottom: 3px; }
 .gbox.gA .gtitle { color: #fbbf24; } .gbox.gB .gtitle { color: #93c5fd; }
+
+.modebar { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.modebar button { flex: 1; background: var(--bg); border: 1px solid var(--line); color: var(--muted); padding: 4px 6px; font-size: 11.5px; }
+.modebar button.active { background: rgba(59,130,246,.18); border-color: var(--accent); color: var(--text); font-weight: 700; }
+.status.LIMIT { background: rgba(34,197,94,.15); color: var(--buy); border: 1px solid var(--buy); }
+.status.FILLED { background: var(--bg); color: var(--muted); border: 1px solid var(--line); }
+ol.steps { margin: 6px 0; padding-left: 18px; font-size: 12.5px; } ol.steps li { margin-bottom: 3px; }
+.toast { position: fixed; right: 16px; bottom: 16px; z-index: 99; background: var(--panel2); border: 1px solid var(--warn); border-left: 4px solid var(--warn); padding: 10px 14px; border-radius: 8px; max-width: 360px; box-shadow: 0 6px 24px rgba(0,0,0,.5); cursor: pointer; }
+.sq span.b { background: #6b7280; }

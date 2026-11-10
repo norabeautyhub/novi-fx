@@ -30,6 +30,8 @@ const sym = (req) => {
   if (!INSTRUMENTS[s]) throw new Error('Unknown symbol');
   return s;
 };
+const { MODES } = require('./src/strategy');
+const modeOf = (req) => { const m = String(req.query.mode || req.body?.mode || 'normal'); return MODES[m] ? m : 'normal'; };
 const tfOf = (req) => {
   const tf = String(req.query.tf || req.body?.tf || '1h');
   if (!TIMEFRAMES.includes(tf)) throw new Error('Unknown timeframe');
@@ -97,7 +99,7 @@ app.get('/api/candles', wrap(async (req, res) => {
 app.get('/api/signal', wrap(async (req, res) => {
   const symbol = sym(req), tf = tfOf(req);
   const candles = await getCandles(symbol, tf, N);
-  const sig = liveSignal(candles, symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits);
+  const sig = liveSignal(candles, symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits, modeOf(req));
   sig.livePrice = await getPrice(symbol);
   sig.status = signalStatus(sig, sig.livePrice, Date.now() / 1000);
   sig.tfSec = TF_SEC[tf];
@@ -105,26 +107,26 @@ app.get('/api/signal', wrap(async (req, res) => {
 }));
 
 // Same symbol on several timeframes → confluence
-async function mtfFor(symbol) {
+async function mtfFor(symbol, mode = 'normal') {
   const out = {};
   for (const tf of ['15m', '1h', '4h']) {
     try {
-      const s = liveSignal(await getCandles(symbol, tf, N, 3 * 60_000), symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits);
+      const s = liveSignal(await getCandles(symbol, tf, N, 3 * 60_000), symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits, mode);
       const st = signalStatus(s, await getPrice(symbol), Date.now() / 1000);
       out[tf] = { action: s.action, status: st?.code || null, profile: s.profile.status };
     } catch (e) { out[tf] = { error: e.message }; }
   }
   return out;
 }
-app.get('/api/mtf', wrap(async (req, res) => res.json(await mtfFor(sym(req)))));
+app.get('/api/mtf', wrap(async (req, res) => res.json(await mtfFor(sym(req), modeOf(req)))));
 
 // Scan all instruments on one timeframe
 // "Today's verified signals": every symbol × timeframe whose profile is verified/weak,
 // only BUY/SELL signals that are still valid. Waits for Twelve Data slots instead of failing.
 const { getProfile } = require('./src/profiles');
 const TODAY_AGE = { '5m': 2 * 60_000, '15m': 5 * 60_000, '1h': 10 * 60_000, '4h': 20 * 60_000, '1d': 60 * 60_000 };
-let todayCache = null, todayRunning = null;
-async function buildToday() {
+const todayCache = {}, todayRunning = {};
+async function buildToday(mode) {
   const signals = [], checked = [], errors = [];
   for (const s of Object.keys(INSTRUMENTS)) {
     for (const tf of TIMEFRAMES) {
@@ -133,29 +135,30 @@ async function buildToday() {
       checked.push({ symbol: s, tf, status: prof.status });
       try {
         const candles = await getCandles(s, tf, N, TODAY_AGE[tf], true);
-        const sig = liveSignal(candles, s, tf, TF_SEC[tf], INSTRUMENTS[s].digits);
+        const sig = liveSignal(candles, s, tf, TF_SEC[tf], INSTRUMENTS[s].digits, mode);
         if (!['BUY', 'SELL'].includes(sig.action)) continue;
         const price = await getPrice(s);
         const st = signalStatus(sig, price, Date.now() / 1000);
-        if (['INVALID', 'EXPIRED', 'DONE'].includes(st?.code)) continue;
+        if (['INVALID', 'EXPIRED', 'DONE', 'FILLED'].includes(st?.code)) continue;
         let g = null;
-        try { g = await gradeFor(s, tf, sig); } catch (e) { g = { grade: '?', reasons: [{ ok: false, text: e.message }] }; }
+        try { g = await gradeFor(s, tf, sig, mode); } catch (e) { g = { grade: '?', reasons: [{ ok: false, text: e.message }] }; }
         signals.push({ symbol: s, tf, action: sig.action, profile: prof.status, strategy: prof.strategy, status: st?.code, statusText: st?.text,
-          price, entry: sig.entry, stopLoss: sig.stopLoss, target: sig.tp2, zone: sig.zone, signalTime: sig.signalTime, expiresAt: sig.expiresAt, grade: g });
+          price, entry: sig.entry, stopLoss: sig.stopLoss, target: sig.tp2, zone: sig.zone, signalTime: sig.signalTime, expiresAt: sig.expiresAt, grade: g, mode, plan: sig.plan, tp1: sig.tp1 });
       } catch (e) { errors.push({ symbol: s, tf, error: e.message }); }
     }
   }
   const order = { ACTIVE: 0, CAUTION: 1, MISSED: 2 };
   const gOrder = { A: 0, B: 1, C: 2 };
   signals.sort((a, b) => (gOrder[a.grade?.grade] ?? 3) - (gOrder[b.grade?.grade] ?? 3) || (order[a.status] ?? 3) - (order[b.status] ?? 3) || b.signalTime - a.signalTime);
-  todayCache = { time: Date.now(), signals, checked, errors };
-  return todayCache;
+  todayCache[mode] = { time: Date.now(), mode, signals, checked, errors };
+  return todayCache[mode];
 }
 app.get('/api/today', wrap(async (req, res) => {
-  const fresh = todayCache && Date.now() - todayCache.time < 4 * 60_000 && !req.query.force;
-  if (fresh) return res.json(todayCache);
-  if (!todayRunning) todayRunning = buildToday().finally(() => { todayRunning = null; });
-  res.json(await todayRunning);
+  const mode = modeOf(req);
+  const c = todayCache[mode];
+  if (c && Date.now() - c.time < 4 * 60_000 && !req.query.force) return res.json(c);
+  if (!todayRunning[mode]) todayRunning[mode] = buildToday(mode).finally(() => { todayRunning[mode] = null; });
+  res.json(await todayRunning[mode]);
 }));
 
 // Deep Analysis (no AI key): 15 indicators × 4 timeframes + news headlines + calendar
@@ -165,14 +168,14 @@ const deepCandles = (s, t) => getCandles(s, t, t === '1d' ? 600 : N, DEEP_AGE[t]
 app.post('/api/deep', wrap(async (req, res) => {
   const symbol = sym(req), tf = tfOf(req);
   let strategySignal = null;
-  try { strategySignal = liveSignal(await getCandles(symbol, tf, N), symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits); } catch {}
+  try { strategySignal = liveSignal(await getCandles(symbol, tf, N), symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits, modeOf(req)); } catch {}
   res.json(await deepAnalyze({ symbol, tf, strategySignal, getPrice, getCandles: deepCandles }));
 }));
 
 // Signal Grade (A/B/C) for the current strategy signal — light Deep run (no headlines, not logged as Deep)
 const gradeCache = new Map();
-async function gradeFor(symbol, tf, strategySignal) {
-  const key = `${symbol}|${tf}|${strategySignal?.signalTime || 'none'}`;
+async function gradeFor(symbol, tf, strategySignal, mode = 'normal') {
+  const key = `${symbol}|${tf}|${mode}|${strategySignal?.signalTime || 'none'}`;
   const hit = gradeCache.get(key);
   if (hit && Date.now() - hit.at < 3 * 60_000) return hit.v;
   const d = await deepAnalyze({ symbol, tf, strategySignal, getPrice, getCandles: deepCandles, log: false, headlines: false });
@@ -182,8 +185,9 @@ async function gradeFor(symbol, tf, strategySignal) {
 }
 app.get('/api/grade', wrap(async (req, res) => {
   const symbol = sym(req), tf = tfOf(req);
-  const sig = liveSignal(await getCandles(symbol, tf, N), symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits);
-  res.json(await gradeFor(symbol, tf, sig));
+  const mode = modeOf(req);
+  const sig = liveSignal(await getCandles(symbol, tf, N), symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits, mode);
+  res.json(await gradeFor(symbol, tf, sig, mode));
 }));
 
 // AI Signal Tracker
@@ -197,7 +201,7 @@ app.get('/api/scan', wrap(async (req, res) => {
   const results = [];
   for (const s of Object.keys(INSTRUMENTS)) {
     try {
-      const sig = liveSignal(await getCandles(s, tf, N, 5 * 60_000, true), s, tf, TF_SEC[tf], INSTRUMENTS[s].digits);
+      const sig = liveSignal(await getCandles(s, tf, N, 5 * 60_000, true), s, tf, TF_SEC[tf], INSTRUMENTS[s].digits, modeOf(req));
       const price = await getPrice(s);
       const st = signalStatus(sig, price, Date.now() / 1000);
       results.push({ symbol: s, action: sig.action, profile: sig.profile.status, strategy: sig.profile.strategy, price, entry: sig.entry, stopLoss: sig.stopLoss, tp1: sig.tp1, tp2: sig.tp2, zone: sig.zone, status: st?.code || null, live: stream.isLive(s) });
@@ -211,7 +215,7 @@ app.get('/api/scan', wrap(async (req, res) => {
 app.get('/api/backtest', wrap(async (req, res) => {
   const symbol = sym(req), tf = tfOf(req);
   const candles = await getCandles(symbol, tf, 5000, 10 * 60_000);
-  res.json(backtest(candles, symbol, tf));
+  res.json(backtest(candles, symbol, tf, modeOf(req)));
 }));
 
 // Walk-forward optimizer (train on first 60%, judge on last 40%) — saved to data/profiles.json
@@ -224,7 +228,7 @@ app.post('/api/optimize', wrap(async (req, res) => {
 app.post('/api/explain', wrap(async (req, res) => {
   const symbol = sym(req), tf = tfOf(req);
   const candles = await getCandles(symbol, tf, N);
-  const signal = liveSignal(candles, symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits);
+  const signal = liveSignal(candles, symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits, modeOf(req));
   signal.livePrice = await getPrice(symbol);
   signal.status = signalStatus(signal, signal.livePrice, Date.now() / 1000);
   res.json(await ai.analyze({ symbol, tf, signal, candles, livePrice: signal.livePrice, digits: INSTRUMENTS[symbol].digits }));
