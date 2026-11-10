@@ -189,6 +189,7 @@ async function loadSignal() {
   const ago = sig.barsAgo ? `${sig.barsAgo} candle${sig.barsAgo > 1 ? 's' : ''} කලින්` : 'අන්තිම close වුණු candle එකේ';
   const lv = isTrade ? `
     <div id="sigStatus" class="status"></div>
+    <div id="sigGrade"></div>
     <div class="small muted" style="margin:4px 0">Signal එක ආවේ ${ago} (${dt(sig.signalTime * 1000)})</div>
     <div class="levels mono">
       <span>Entry zone</span><span>${fmt(sig.zone[0])} – ${fmt(sig.zone[1])}</span>
@@ -207,6 +208,9 @@ async function loadSignal() {
     <div class="small muted">Close වුණු candles විතරක් බලලා හදපු signal එකක් — candle එක මැද්දේ වෙනස් වෙන්නේ නැහැ.</div>`;
   drawSignalLines(sig);
   renderStatus();
+  const gk = `${S.symbol}|${S.tf}|${sig.signalTime}`;
+  if (isTrade && (S.gradeKey !== gk || Date.now() - (S.gradeAt || 0) > 180_000)) { S.gradeKey = gk; S.gradeAt = Date.now(); S.gradeHtml = null; loadGrade().then(() => { S.gradeHtml = $('sigGrade')?.innerHTML; }); }
+  else if (isTrade && S.gradeHtml && $('sigGrade')) $('sigGrade').innerHTML = S.gradeHtml;
 }
 
 async function loadMtf() {
@@ -285,6 +289,22 @@ $('btnExplain').onclick = async () => {
   b.disabled = false;
 };
 
+/* ---------- Signal Grade ---------- */
+const GRADE = { A: ['gA', '🏆 Grade A', 'හොඳම signal එක'], B: ['gB', '🥈 Grade B', 'Risk අඩු කරලා'], C: ['gC', '⚠️ Grade C', 'Trade කරන්න එපා'] };
+const gradeBadge = (g) => g ? `<span class="grade ${GRADE[g.grade]?.[0] || ''}">${GRADE[g.grade]?.[1] || g.grade}</span>` : '';
+function gradeBox(g) {
+  if (!g) return '';
+  return `<div class="gbox ${GRADE[g.grade]?.[0] || ''}"><div class="gtitle">${GRADE[g.grade]?.[1] || g.grade} <span class="small">— ${esc(g.advice || '')}</span></div>
+    <ul class="reasons">${(g.reasons || []).map((r) => `<li class="${r.ok === true ? 'p' : r.ok === false ? 'm' : 'z'}">${r.ok === true ? '✓' : r.ok === false ? '✗' : '•'} ${esc(r.text)}</li>`).join('')}</ul></div>`;
+}
+async function loadGrade() {
+  const box = $('sigGrade');
+  if (!box) return;
+  box.innerHTML = '<div class="small muted">Grade එක ගණනය කරනවා…</div>';
+  try { const g = await api(`/api/grade?symbol=${S.symbol}&tf=${S.tf}`); if ($('sigGrade')) $('sigGrade').innerHTML = gradeBox(g); }
+  catch (e) { box.innerHTML = `<div class="small neg">${esc(e.message)}</div>`; }
+}
+
 /* ---------- Deep Analysis (no AI) ---------- */
 const VOTE = (v) => (v > 0 ? '<span class="pos">▲</span>' : v < 0 ? '<span class="neg">▼</span>' : '<span class="muted">•</span>');
 const DMATCH = { ...MATCH, DEEP_ONLY: { cls: 'CAUTION', icon: '⚠️', label: 'Deep විතරයි' } };
@@ -304,6 +324,7 @@ function renderDeep(r) {
   const cal = Array.isArray(r.calendar) ? r.calendar.map((e) => `<li>${e.impact === 'High' ? '🔴' : '🟠'} <span class="mono">${dt(e.time)}</span> · ${e.country} ${esc(e.title)}${e.forecast ? ` <span class="muted">(forecast ${esc(e.forecast)}, කලින් ${esc(e.previous || '—')})</span>` : ''}</li>`).join('') : '';
   return `
     <div class="ai-head">🔬 Deep Analysis · <span class="muted small">${dt(Date.parse(r.time))} · ${r.symbol} ${r.tf}</span></div>
+    ${gradeBox(r.grade)}
     <div class="deep-res"><div class="cmp-act ${r.action}">${r.action}</div>
       <div><div class="small">Indicators ${r.confidence}% ${r.score > 0 ? 'BUY' : r.score < 0 ? 'SELL' : ''} පැත්තට</div>
       <div class="conf"><div style="width:${r.confidence}%; background:${r.score > 0 ? 'var(--buy)' : 'var(--sell)'}"></div></div></div></div>
@@ -317,6 +338,12 @@ function renderDeep(r) {
       <table class="votes"><tr><th></th>${tfs.map((t) => `<th class="${t === r.tf ? 'cur' : ''}">${t}</th>`).join('')}</tr>
       ${names.map(([k, n]) => `<tr><td>${esc(n)}</td>${tfs.map((t) => cell(t, k)).join('')}</tr>`).join('')}
       <tr class="tot"><td>▲ / ▼</td>${tfs.map((t) => r.tfScore[t] ? `<td><span class="pos">${r.tfScore[t].buy}</span>/<span class="neg">${r.tfScore[t].sell}</span></td>` : '<td>—</td>').join('')}</tr></table></div>
+    <div class="ai-sec"><b>🧠 ML Models (1h)</b> ${r.ml?.available ? `<span class="muted small">train කළේ ${r.ml.trainedOn} data · test accuracy ${r.ml.valAcc}%</span>
+      <table class="votes"><tr><th></th><th>දිශාව</th><th>දිනන්න ඉඩ</th></tr>
+      ${[['mlp', 'Neural network'], ['lstm', 'LSTM'], ['lgb', 'LightGBM'], ['ens', 'එකතුව']].map(([k, n]) => `<tr${k === 'ens' ? ' class="tot"' : ''}><td>${n}</td><td><span class="pill ${r.ml.models[k].dir}">${r.ml.models[k].dir}</span></td><td>${(r.ml.models[k].prob * 100).toFixed(1)}%</td></tr>`).join('')}</table>
+      ${r.ml.filter ? `<div class="small">Strategy signal එකට ML filter: <b class="${r.ml.filter.ok ? 'pos' : 'neg'}">${r.ml.filter.ok ? '👍 ගන්න' : '👎 skip කරන්න'}</b> <span class="muted">(${(r.ml.filter.prob * 100).toFixed(1)}% vs සාමාන්‍ය ${(r.ml.filter.median * 100).toFixed(1)}%)</span></div>` : ''}
+      <div class="small muted">ⓘ ML models දුර්වලයි (coin එකට වඩා ටිකක් හොඳයි) — ඒ නිසා score එකේ බර indicator එකක් තරමයි.</div>`
+      : `<div class="small muted">${esc(r.ml?.reason || 'ML නැහැ')}</div>`}</div>
     <details class="ai-sec"><summary><b>🔎 ${main} විස්තර</b></summary><ul class="ev">${(r.frames[main].votes || []).map((v) => `<li>${VOTE(v.vote)} <b>${esc(v.name)}</b>: ${esc(v.why)}</li>`).join('')}</ul></details>
     <div class="ai-sec"><b>📰 අලුත්ම news</b> ${r.news?.error ? `<span class="small neg">${esc(r.news.error)}</span>` : ''}${nw ? `<ul class="ev news">${nw}</ul>` : '<div class="small muted">News නැහැ</div>'}
       <div class="small muted">AI නැති නිසා news කියවලා තීරණය කරන්නේ ඔයාමයි.</div></div>
@@ -366,10 +393,14 @@ async function loadTracker() {
   box.innerHTML = '<div class="muted small">AI signals check කරනවා…</div>';
   try {
     const t = await api('/api/ai-tracker');
-    if (!t.analyses) { box.innerHTML = '<div class="muted">තාම AI / Deep analyses නැහැ. Signal card එකේ "🤖 AI Analysis + News check" click කරලා analyses එකතු කරන්න. AI signals 50+ ක් එකතු වුණාම මෙතනින් AI ඇත්තටම ලාභද කියලා පේනවා.</div>'; return; }
+    const gradeTable = `<div class="bt-h" style="margin-top:6px">🏆 Signal Grades <span class="muted small">(signals ${t.gradeCount} — "අද Signals" සහ Deep/Grade check කරනකොට auto save වෙනවා)</span></div>
+      <table class="wrap"><tr><th></th><th>Signals</th><th>ඉවර වුණු</th><th>Win rate</th><th>ලාභ / පාඩු</th><th></th></tr>
+        ${scoreRow('🏆 Grade A', t.byGrade.A, 'හොඳම signals')}${scoreRow('🥈 Grade B', t.byGrade.B, 'එක දුර්වල තැනක්')}${scoreRow('⚠️ Grade C', t.byGrade.C, 'trade නොකළ යුතු ඒවා')}
+      </table><p class="small muted">Grade system එක වැඩ කරනවා නම් A row එක B ට වඩා, B row එක C ට වඩා හොඳ වෙන්න ඕන. Signals 30+ ක් එකතු වෙනකම් තීරණයක් ගන්න එපා.</p>`;
+    if (!t.analyses) { box.innerHTML = gradeTable + '<div class="muted">තාම AI / Deep analyses නැහැ. Signal card එකේ "🤖 AI Analysis + News check" click කරලා analyses එකතු කරන්න. AI signals 50+ ක් එකතු වුණාම මෙතනින් AI ඇත්තටම ලාභද කියලා පේනවා.</div>'; return; }
     const bm = t.byMatch;
     const enough = t.ai.closed >= 30;
-    box.innerHTML = `
+    box.innerHTML = gradeTable + `
       <div class="row"><b>🤖 AI Signal Tracker</b><span class="muted small">Analyses ${t.analyses} · update ${dt(t.time)}</span><button id="btnTrRef" class="sm ghost">Refresh</button></div>
       <div class="status ${enough ? (t.ai.netR > 0 ? 'ACTIVE' : 'INVALID') : 'CAUTION'}">${enough
         ? (t.ai.netR > 0 ? `✅ AI signals ${t.ai.closed}කින් ලාභයි (${t.ai.netR}R).` : `❌ AI signals ${t.ai.closed}කින් පාඩුයි (${t.ai.netR}R) — AI signal එක trade කරන්න එපා, news check එකට විතරක් පාවිච්චි කරන්න.`)
@@ -406,13 +437,14 @@ async function loadToday(force) {
   try {
     const t = await api('/api/today' + (force ? '?force=1' : ''));
     S.today = t;
-    const active = t.signals.filter((x) => x.status === 'ACTIVE').length;
+    const active = t.signals.filter((x) => x.grade?.grade === 'A').length;
     $('todayCount').textContent = t.signals.length ? `${active}/${t.signals.length}` : '';
     $('todayCount').className = 'cnt' + (active ? ' on' : '');
     if (!box) return;
     const cards = t.signals.map((x) => `
       <div class="tcard" data-s="${x.symbol}" data-tf="${x.tf}">
-        <div class="tc-top"><b>${x.symbol}</b> <span class="muted">${x.tf}</span> <span class="pill ${x.action}">${x.action}</span> ${profBadge(x.profile)}</div>
+        <div class="tc-top">${gradeBadge(x.grade)} <b>${x.symbol}</b> <span class="muted">${x.tf}</span> <span class="pill ${x.action}">${x.action}</span> ${profBadge(x.profile)}</div>
+        ${x.grade?.advice ? `<div class="small" title="${esc((x.grade.reasons || []).map((r) => (r.ok === false ? '✗ ' : r.ok ? '✓ ' : '• ') + r.text).join('\n'))}">${esc(x.grade.advice)}</div>` : ''}
         <div class="status ${x.status}" style="margin:4px 0"><b>${x.status}</b> · ${x.statusText}</div>
         <div class="mono small">Zone ${fmt(x.zone[0], x.symbol)} – ${fmt(x.zone[1], x.symbol)} · <span class="neg">SL ${fmt(x.stopLoss, x.symbol)}</span> · <span class="pos">Target ${fmt(x.target, x.symbol)}</span></div>
         <div class="small muted">දැන් ${fmt(x.price, x.symbol)} · signal එක ${ago(x.signalTime)} · ${STRAT_NAME[x.strategy] || x.strategy}</div>

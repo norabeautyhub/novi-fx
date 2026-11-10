@@ -128,3 +128,12 @@ table.votes td:first-child { text-align: left; white-space: normal; }
 table.votes th.cur { color: var(--accent); }
 table.votes tr.tot td { border-top: 2px solid var(--line); font-weight: 700; }
 ul.news li { margin-bottom: 3px; }
+
+.grade { font-weight: 800; font-size: 11px; padding: 2px 7px; border-radius: 10px; border: 1px solid; white-space: nowrap; }
+.grade.gA { color: #fbbf24; border-color: #fbbf24; background: rgba(251,191,36,.12); }
+.grade.gB { color: #93c5fd; border-color: #93c5fd; }
+.grade.gC { color: var(--muted); border-color: var(--line); }
+.gbox { border-radius: 8px; padding: 7px 9px; margin: 6px 0; border: 1px solid var(--line); background: var(--bg); }
+.gbox.gA { border-color: #fbbf24; background: rgba(251,191,36,.08); } .gbox.gB { border-color: #93c5fd; } .gbox.gC { opacity: .9; }
+.gtitle { font-weight: 800; margin-bottom: 3px; }
+.gbox.gA .gtitle { color: #fbbf24; } .gbox.gB .gtitle { color: #93c5fd; }

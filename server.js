@@ -138,13 +138,16 @@ async function buildToday() {
         const price = await getPrice(s);
         const st = signalStatus(sig, price, Date.now() / 1000);
         if (['INVALID', 'EXPIRED', 'DONE'].includes(st?.code)) continue;
+        let g = null;
+        try { g = await gradeFor(s, tf, sig); } catch (e) { g = { grade: '?', reasons: [{ ok: false, text: e.message }] }; }
         signals.push({ symbol: s, tf, action: sig.action, profile: prof.status, strategy: prof.strategy, status: st?.code, statusText: st?.text,
-          price, entry: sig.entry, stopLoss: sig.stopLoss, target: sig.tp2, zone: sig.zone, signalTime: sig.signalTime, expiresAt: sig.expiresAt });
+          price, entry: sig.entry, stopLoss: sig.stopLoss, target: sig.tp2, zone: sig.zone, signalTime: sig.signalTime, expiresAt: sig.expiresAt, grade: g });
       } catch (e) { errors.push({ symbol: s, tf, error: e.message }); }
     }
   }
   const order = { ACTIVE: 0, CAUTION: 1, MISSED: 2 };
-  signals.sort((a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3) || b.signalTime - a.signalTime);
+  const gOrder = { A: 0, B: 1, C: 2 };
+  signals.sort((a, b) => (gOrder[a.grade?.grade] ?? 3) - (gOrder[b.grade?.grade] ?? 3) || (order[a.status] ?? 3) - (order[b.status] ?? 3) || b.signalTime - a.signalTime);
   todayCache = { time: Date.now(), signals, checked, errors };
   return todayCache;
 }
@@ -158,14 +161,29 @@ app.get('/api/today', wrap(async (req, res) => {
 // Deep Analysis (no AI key): 15 indicators × 4 timeframes + news headlines + calendar
 const { deepAnalyze } = require('./src/deep');
 const DEEP_AGE = { '15m': 3 * 60_000, '1h': 5 * 60_000, '4h': 15 * 60_000, '1d': 60 * 60_000 };
+const deepCandles = (s, t) => getCandles(s, t, t === '1d' ? 600 : N, DEEP_AGE[t], true);
 app.post('/api/deep', wrap(async (req, res) => {
   const symbol = sym(req), tf = tfOf(req);
   let strategySignal = null;
   try { strategySignal = liveSignal(await getCandles(symbol, tf, N), symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits); } catch {}
-  res.json(await deepAnalyze({
-    symbol, tf, strategySignal, getPrice,
-    getCandles: (s, t) => getCandles(s, t, t === '1d' ? 600 : N, DEEP_AGE[t], true),
-  }));
+  res.json(await deepAnalyze({ symbol, tf, strategySignal, getPrice, getCandles: deepCandles }));
+}));
+
+// Signal Grade (A/B/C) for the current strategy signal — light Deep run (no headlines, not logged as Deep)
+const gradeCache = new Map();
+async function gradeFor(symbol, tf, strategySignal) {
+  const key = `${symbol}|${tf}|${strategySignal?.signalTime || 'none'}`;
+  const hit = gradeCache.get(key);
+  if (hit && Date.now() - hit.at < 3 * 60_000) return hit.v;
+  const d = await deepAnalyze({ symbol, tf, strategySignal, getPrice, getCandles: deepCandles, log: false, headlines: false });
+  const v = { ...d.grade, deepAction: d.action, ml: d.ml?.available ? { dir: d.ml.models.ens.dir, filter: d.ml.filter } : null, soonHighImpact: d.soonHighImpact };
+  gradeCache.set(key, { at: Date.now(), v });
+  return v;
+}
+app.get('/api/grade', wrap(async (req, res) => {
+  const symbol = sym(req), tf = tfOf(req);
+  const sig = liveSignal(await getCandles(symbol, tf, N), symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits);
+  res.json(await gradeFor(symbol, tf, sig));
 }));
 
 // AI Signal Tracker

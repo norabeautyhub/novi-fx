@@ -10,6 +10,7 @@ const { INSTRUMENTS } = require('./instruments');
 
 const LOG = path.join(__dirname, '..', 'data', 'ai-log.json');
 const DEEP_LOG = path.join(__dirname, '..', 'data', 'deep-log.json');
+const GRADE_LOG = path.join(__dirname, '..', 'data', 'grade-log.json');
 const FILL_HOURS = 24;   // entry price must be touched within 24h, else "not filled"
 const MAX_HOLD_H = 168;  // close after 7 days at market
 
@@ -109,7 +110,22 @@ async function track(getCandles) {
     }
     return g;
   };
+  // Signal grades: strategy signal outcome grouped by the grade it had when first seen
+  const grades = readJSON(GRADE_LOG);
+  const gradeRows = [];
+  const candleCache = {};
+  for (const g of grades) {
+    if (!(g.symbol in candleCache)) { try { candleCache[g.symbol] = await getCandles(g.symbol); } catch { candleCache[g.symbol] = null; } }
+    const cs = candleCache[g.symbol];
+    const t0 = Math.floor(Date.parse(g.time) / 1000);
+    const st = g.strategy || {};
+    gradeRows.push({ ...g, outcome: cs ? evalTrade(g.symbol, { action: st.action, entry: st.entry, sl: st.stopLoss, tp: st.target }, t0, cs) : null });
+  }
+  const byGrade = {};
+  for (const G of ['A', 'B', 'C']) byGrade[G] = score(gradeRows.filter((r) => r.grade === G).map((r) => r.outcome));
+
   return {
+    byGrade, gradeCount: grades.length, gradeRows: gradeRows.slice(0, 100),
     time: Date.now(), analyses: log.length,
     aiCount: log.filter((e) => e.kind === 'ai').length, deepCount: log.filter((e) => e.kind === 'deep').length,
     ai: score(rows.filter((r) => r.kind === 'ai').map((r) => r.ai.outcome)),

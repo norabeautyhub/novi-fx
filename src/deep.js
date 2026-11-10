@@ -10,6 +10,9 @@ const path = require('path');
 const S = require('./strategy');
 const I = require('./indicators');
 const { INSTRUMENTS } = require('./instruments');
+const ML = require('./ml');
+const { grade, logGrade } = require('./grade');
+const { signalStatus } = require('./signals');
 
 const TFS = ['15m', '1h', '4h', '1d'];
 const TF_WEIGHT = { '15m': 1, '1h': 1.5, '4h': 2, '1d': 2 };
@@ -188,12 +191,15 @@ async function calendar(symbol) {
 }
 
 // ---------- main ----------
-async function deepAnalyze({ symbol, tf, getCandles, getPrice, strategySignal }) {
+async function deepAnalyze({ symbol, tf, getCandles, getPrice, strategySignal, log = true, headlines = true }) {
   const digits = INSTRUMENTS[symbol].digits;
-  const frames = {};
+  const frames = {}, candlesBy = {};
   for (const t of TFS) {
-    try { frames[t] = votesFor(await getCandles(symbol, t), digits); } catch (e) { frames[t] = { error: e.message }; }
+    try { candlesBy[t] = await getCandles(symbol, t); frames[t] = votesFor(candlesBy[t], digits); } catch (e) { frames[t] = { error: e.message }; }
   }
+  // ML models (1h) — counts like ONE extra indicator on the 1h timeframe
+  let ml = { available: false, reason: '1h candles නැහැ' };
+  try { if (candlesBy['1h']) ml = ML.analyze(symbol, candlesBy['1h'], strategySignal?.action); } catch (e) { ml = { available: false, reason: e.message }; }
   // weighted score: +1 (all BUY) … −1 (all SELL)
   let num = 0, den = 0;
   const tfScore = {};
@@ -204,6 +210,7 @@ async function deepAnalyze({ symbol, tf, getCandles, getPrice, strategySignal })
     tfScore[t] = { buy: fr.votes.filter((v) => v.vote > 0).length, sell: fr.votes.filter((v) => v.vote < 0).length, neutral: fr.votes.filter((v) => v.vote === 0).length, score: s / fr.votes.length };
     num += TF_WEIGHT[t] * s; den += TF_WEIGHT[t] * fr.votes.length;
   }
+  if (ml.available) { num += TF_WEIGHT['1h'] * ml.vote; den += TF_WEIGHT['1h']; }
   const score = den ? num / den : 0;
   const price = await getPrice(symbol);
   const main = frames[tf] && frames[tf].votes ? frames[tf] : frames['1h'];
@@ -228,25 +235,31 @@ async function deepAnalyze({ symbol, tf, getCandles, getPrice, strategySignal })
     levels = { entry: price, stopLoss: sl, tp1: price + d * 1.5 * risk, tp2: price + d * 2.5 * risk, rr: 2.5, nextLevel: d === 1 ? main.resistance : main.support };
   }
 
-  let newsRes, cal;
-  try { newsRes = await news(symbol); } catch (e) { newsRes = { error: e.message }; }
+  let newsRes = null, cal;
+  if (headlines) { try { newsRes = await news(symbol); } catch (e) { newsRes = { error: e.message }; } }
   try { cal = await calendar(symbol); } catch (e) { cal = { error: e.message }; }
-  const soon = Array.isArray(cal) ? cal.filter((e) => e.impact === 'High' && e.time < Date.now() + 24 * 3600e3) : [];
+  const soon = Array.isArray(cal) ? cal.filter((e) => e.impact === 'High' && e.time < Date.now() + 24 * 3600e3) : null;
 
   const sa = strategySignal?.action;
   const st = ['BUY', 'SELL'].includes(sa), dt = ['BUY', 'SELL'].includes(action);
   const match = st && dt ? (sa === action ? 'MATCH' : 'CONFLICT') : !st && !dt ? 'MATCH_WAIT' : st ? 'PARTIAL' : 'DEEP_ONLY';
 
+  const stStatus = strategySignal ? signalStatus(strategySignal, price, Date.now() / 1000) : null;
+  const g = grade({ strategy: strategySignal, statusCode: stStatus?.code, deepAction: action, ml, soonNews: soon });
+  if (['BUY', 'SELL'].includes(strategySignal?.action) && strategySignal.signalTime) {
+    logGrade({ time: new Date().toISOString(), symbol, tf, signalTime: strategySignal.signalTime, grade: g.grade, status: stStatus?.code,
+      strategy: { action: strategySignal.action, entry: strategySignal.entry, stopLoss: strategySignal.stopLoss, target: strategySignal.tp2 } });
+  }
   const out = {
     ok: true, time: new Date().toISOString(), symbol, tf, price, score: +score.toFixed(3), confidence: Math.round(Math.abs(score) * 100),
-    action, why, levels, frames, tfScore, news: newsRes, calendar: cal, soonHighImpact: soon, match,
+    action, why, levels, frames, tfScore, news: newsRes, calendar: cal, soonHighImpact: soon, match, ml, grade: g, strategyStatus: stStatus,
     strategy: strategySignal ? { action: sa, entry: strategySignal.entry, stopLoss: strategySignal.stopLoss, target: strategySignal.tp2, status: strategySignal.profile?.status } : null,
   };
   // log for the Tracker (same shape as ai-log, kind: 'deep')
-  try {
+  if (log) try {
     let all = [];
     try { all = JSON.parse(fs.readFileSync(LOG, 'utf8')); } catch {}
-    all.unshift({ kind: 'deep', time: out.time, symbol, tf, price, match,
+    all.unshift({ kind: 'deep', time: out.time, symbol, tf, price, match, grade: g.grade,
       strategy: out.strategy, ai: { action, entry: levels?.entry, stop_loss: levels?.stopLoss, take_profit: levels?.tp2, confidence: out.confidence } });
     fs.mkdirSync(path.dirname(LOG), { recursive: true });
     fs.writeFileSync(LOG, JSON.stringify(all.slice(0, 1000), null, 2));

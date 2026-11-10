@@ -54,6 +54,19 @@ Signal card එකේ **🔬 Deep Analysis** button එක:
 - අලුත්ම news headlines (Finnhub) + ඉදිරි පැය 48 economic events (ForexFactory) + පැය 24 ඇතුළත high-impact news warning
 - Strategy signal එක්ක MATCH/CONFLICT, AI Tracker එකේ වෙනම track වෙනවා
 
+## 🧠 ML models (Deep Analysis එක ඇතුළේ)
+Neural network (layers 4), LSTM (candles 32ක sequence), LightGBM — Gold 2014–2018 සහ EURUSD 2017–2021 1h data වලින් train කරලා (`research/ml_*.py`), app එකේම JavaScript වලින් run වෙනවා (Python ඕන නැහැ, `src/ml-models.json`).
+- Walk-forward research ප්‍රතිඵලය: accuracy ~50–53% (දුර්වලයි). තනියම signals දුන්නොත් costs එක්ක පාඩුයි. ඒ නිසා Deep score එකේ බර indicator එකක් තරමයි.
+- Strategy signal එකට ML filter එක (👍/👎). XAUUSD විතරයි — EURUSD models accuracy 50%ට අඩු නිසා off.
+
+## 🏆 Signal Grade (A / B / C)
+Strategy signal එකක් ආවම tools ඔක්කොම එකට බලලා:
+- 🏆 **A** — Verified strategy + entry zone ඇතුළේ + Deep එකඟයි + ML 👎 නැහැ + ළඟ ලොකු news නැහැ → 1% risk
+- 🥈 **B** — එක දුර්වල තැනක් → 0.5% risk
+- ⚠️ **C** — signal නැහැ / MISSED / දුර්වල තැන් 2+ → trade කරන්න එපා
+
+Signal card එකේ, Deep Analysis එකේ සහ "අද Signals" list එකේ (A උඩින්ම) පේනවා. Grades `data/grade-log.json` එකේ save වෙලා AI Tracker එකේ A/B/C ප්‍රතිඵල වෙන වෙනම track වෙනවා.
+
 ## 🤖 AI Analysis + News check
 Signal card එකේ button එක click කරාම (ANTHROPIC_API_KEY ඕන):
 1. Claude web එකේ අද news search කරනවා (Fed, inflation, USD, geopolitics, ඉදිරි පැය 48 high-impact events)
