@@ -132,3 +132,46 @@ function signalStatus(sig, price, nowSec) {
 }
 
 module.exports = { liveSignal, signalStatus };
+
+// When the strategy says WAIT: where/what would trigger the next signal (for each trade mode).
+// Uses the same rules as the strategy, looking at the last CLOSED candle.
+function setupPlan(candles, symbol, tf, mode = 'normal', digits) {
+  const prof = getProfile(symbol, tf);
+  if (['disabled', 'noedge'].includes(prof.status)) return { off: true, text: prof.note || 'මේ market එකේ strategy එක off' };
+  if (candles.length < 260) return { off: true, text: 'Candles මදි' };
+  const F = S.features(candles);
+  const L = candles.length - 2, p = prof.params, a = F.atr[L], price = F.c[L];
+  const f = (v) => (digits != null ? (+v).toFixed(digits) : String(+(+v).toPrecision(8)));
+  const htf = F[p.htf || 'htf4'][L];
+  const htfName = (p.htf || 'htf4') === 'htfD' ? 'Daily' : '4H';
+  const conds = [];
+  if (htf === 0) return { dir: null, text: `${htfName} trend එක පැහැදිලි නැහැ — setup එකක් නැහැ (trend එකක් එනකම් ඉන්න)`, conds: [{ ok: false, text: `${htfName} trend: පැහැදිලි නැහැ` }] };
+  const d = htf, act = d === 1 ? 'BUY' : 'SELL';
+  conds.push({ ok: true, text: `${htfName} trend: ${d === 1 ? 'UP ▲' : 'DOWN ▼'}` });
+  let level, text;
+  const minAdx = p.adx || 0;
+  conds.push({ ok: F.adx[L] > minAdx, text: `ADX ${F.adx[L].toFixed(0)} (අවම ${minAdx})` });
+  if (prof.strategy === 'breakout') {
+    const hi = Math.max(...F.h.slice(L - p.n + 1, L + 1)), lo = Math.min(...F.l.slice(L - p.n + 1, L + 1));
+    level = d === 1 ? hi : lo;
+    text = `${tf} candle එකක් ${f(level)} ට ${d === 1 ? 'උඩින්' : 'යටින්'} close වුණොත් → ${act}`;
+    conds.push({ ok: null, text: `මිල දැන් ${f(price)} — break එකට තව ${f(Math.abs(level - price))}` });
+    if (p.hours) conds.push({ ok: null, text: 'London/New York session (ලංකා වේලාවෙන් 12:30–22:30) ඇතුළේ close වෙන්න ඕන' });
+  } else {
+    const stack = d === 1 ? F.ema20[L] > F.ema50[L] && F.ema50[L] > F.ema200[L] : F.ema20[L] < F.ema50[L] && F.ema50[L] < F.ema200[L];
+    conds.push({ ok: stack, text: `EMA 20/50/200 ${d === 1 ? 'UP' : 'DOWN'} පිළිවෙළට${stack ? '' : ' නැහැ'}` });
+    level = F.ema20[L] + d * 0.1 * a;
+    text = `මිල EMA20 (${f(F.ema20[L])}) ළඟට pullback වෙලා, RSI 50 ${d === 1 ? 'උඩට' : 'යටට'} cross වෙලා candle එක EMA20 ට ${d === 1 ? 'උඩින්' : 'යටින්'} close වුණොත් → ${act}`;
+    conds.push({ ok: null, text: `RSI දැන් ${F.rsi[L].toFixed(0)}` });
+  }
+  // approximate levels if it triggers at `level`
+  const risk = p.sl * a, tpR = prof.exits.tpR;
+  let entry = level, sl = level - d * risk, tp = level + d * tpR * risk, extra = {};
+  if (mode === 'highwin') {
+    const rk = Math.max(risk - 0.5 * a, 0.5 * a);
+    entry = level - d * 0.5 * a; sl = entry - d * rk; tp = entry + d * tpR * rk;
+    extra = { partialAt: entry + d * rk, beTo: entry + d * 0.05 * rk };
+  } else if (mode === 'breakeven') extra = { beAt: level + d * risk, beTo: level + d * 0.05 * risk };
+  return { dir: act, level, text, conds, entry, stopLoss: sl, target: tp, ...extra, approx: true };
+}
+module.exports.setupPlan = setupPlan;

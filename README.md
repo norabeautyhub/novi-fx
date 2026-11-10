@@ -59,6 +59,11 @@ Research (`research/wr.py`, Gold 2014–2018 / EURUSD 2017–2021, costs එක�
 Gold 4h walk-forward (නොදැකපු 2016–2018): High Win Rate 61% win +20.8R vs Normal 33% +18.4R.
 Signal card එකේ පියවරෙන් පියවර උපදෙස්, chart lines, 1R alert (browser notification), Demo trading එකේ limit order + auto 50% close + breakeven, Backtest එකේ "⚖️ Modes 3ම compare".
 
+## 🔬 Deep Analysis — අලුත් කොටස් (2026-11-10)
+- **⚖️ ඔක්කොම එකට:** Strategy / දැන්ම trade / Indicators / ML / AI — දිශාව + success %, BUY vs SELL එකඟතාවය
+- **📐 Strategy signal — mode 3ම:** signal එක (හෝ WAIT නම් signal එක එන මිල + කොන්දේසි), ✅ success / ⚪ $0 / ❌ loss % (backtest), ⚠️ risk (SL දුර, pips, $1,000ට 1% lots, R:R), 💰/🎯 badges
+- **🧭 දැන්ම trade කළොත්:** indicators 13 × (තෝරපු timeframe + 4h + 1d) score එකෙන් BUY/SELL, entry (දැන් මිල) / SL 1.5 ATR / Target 2.5R; success/loss % **මනින ලද** — පහුගිය candles 5000 ඇතුළත ඒ තරම් ශක්තියක් තිබුණ වෙලාවල ප්‍රතිඵල (costs එක්ක). test නොකළ ක්‍රමයක් බව පෙන්නනවා. (`src/now.js`)
+
 ## 🔬 Deep Analysis (free — AI key ඕන නැහැ)
 Signal card එකේ **🔬 Deep Analysis** button එක:
 - Indicators 15 (EMA 200, EMA 20/50, ADX/DI, Ichimoku, Supertrend, RSI, MACD, Stochastic, Momentum, Bollinger, Support/Resistance, Market structure, Pivot, Fibonacci, Candlestick pattern) × timeframes 4 (15m, 1h, 4h, Daily) ඡන්ද table එක

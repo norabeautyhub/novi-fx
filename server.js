@@ -4,7 +4,7 @@ const path = require('path');
 const { INSTRUMENTS, TIMEFRAMES, positionSize } = require('./src/instruments');
 const { getCandles, getPrice } = require('./src/data');
 const { computeAll } = require('./src/indicators');
-const { liveSignal, signalStatus } = require('./src/signals');
+const { liveSignal, signalStatus, setupPlan } = require('./src/signals');
 const { TF_SEC } = require('./src/data');
 const stream = require('./src/stream');
 const { backtest, optimize } = require('./src/backtest');
@@ -171,9 +171,26 @@ app.post('/api/deep', wrap(async (req, res) => {
   try { strategySignal = liveSignal(await getCandles(symbol, tf, N), symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits, modeOf(req)); } catch {}
   const out = await deepAnalyze({ symbol, tf, strategySignal, getPrice, getCandles: deepCandles });
   try { out.modes = await compareModes(symbol, tf); } catch (e) { out.modes = { error: e.message }; }
+  try { out.now = await nowFor(symbol, tf); } catch (e) { out.now = { error: e.message }; }
   res.json(out);
 }));
 
+const getProfileTp = (s, tf) => getProfile(s, tf).exits.tpR;
+const { nowSignal } = require('./src/now');
+const nowCache = new Map();
+async function nowFor(symbol, tf) {
+  const key = `${symbol}|${tf}`, hit = nowCache.get(key);
+  const price = await getPrice(symbol);
+  if (hit && Date.now() - hit.at < 5 * 60_000) return { ...hit.v, entry: price };
+  const by = { [tf]: await getCandles(symbol, tf, 5000, 10 * 60_000, true) };
+  for (const t of ['15m', '1h', '4h', '1d']) {
+    if (TIMEFRAMES.indexOf(t) <= TIMEFRAMES.indexOf(tf)) continue;
+    try { by[t] = await getCandles(symbol, t, t === '1d' ? 600 : N, DEEP_AGE[t], true); } catch {}
+  }
+  const v = nowSignal(symbol, tf, by, price);
+  nowCache.set(key, { at: Date.now(), v });
+  return v;
+}
 // Separate result for Deep: the strategy signal in all 3 trade modes + each mode's backtest on this market.
 // Does NOT change the main signal — only shows which mode was best (profit / win rate) here.
 async function compareModes(symbol, tf) {
@@ -189,10 +206,15 @@ async function compareModes(symbol, tf) {
     const tr = bt.trades, n = Math.max(1, tr.length);
     let L = 0, maxL = 0;
     for (const t of tr) { if (t.r < -0.1) { L++; maxL = Math.max(maxL, L); } else if (t.r > 0.1) L = 0; }
+    const trade = ['BUY', 'SELL'].includes(sig.action);
+    const setup = trade ? null : setupPlan(live, symbol, tf, m, digits);
+    const e = trade ? sig.entry : setup?.entry, s2 = trade ? sig.stopLoss : setup?.stopLoss;
+    const risk = e && s2 ? { distance: Math.abs(e - s2), pips: Math.abs(e - s2) / INSTRUMENTS[symbol].pip, lots1pct1000: positionSize(symbol, e, s2, 10)?.lots ?? null, rr: getProfileTp(symbol, tf) } : null;
     modes[m] = {
-      signal: ['BUY', 'SELL'].includes(sig.action)
+      signal: trade
         ? { action: sig.action, entry: sig.entry, stopLoss: sig.stopLoss, tp1: sig.tp1, target: sig.tp2, plan: sig.plan, limitExpires: sig.limitExpires, status: st?.code, statusText: st?.text }
-        : { action: sig.action },
+        : { action: sig.action, setup },
+      risk,
       stats: {
         trades: tr.length, win: Math.round((tr.filter((t) => t.r > 0.1).length / n) * 100), be: Math.round((tr.filter((t) => Math.abs(t.r) <= 0.1).length / n) * 100),
         loss: Math.round((tr.filter((t) => t.r < -0.1).length / n) * 100), netR: bt.stats.netR, maxL, from: bt.stats.from, to: bt.stats.to,

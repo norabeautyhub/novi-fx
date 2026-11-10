@@ -150,3 +150,7 @@ ol.steps { margin: 6px 0; padding-left: 18px; font-size: 12.5px; } ol.steps li {
 .mgrid { display: grid; grid-template-columns: 1fr; gap: 6px; margin: 6px 0; }
 .mcard { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 7px; }
 .mc-h { font-size: 12.5px; margin-bottom: 2px; }
+
+.rates { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; font-weight: 700; margin: 4px 0 2px; }
+.mcard.cur { border-color: var(--accent); }
+table.cmp-all td:first-child { min-width: 150px; }
