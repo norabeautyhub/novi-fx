@@ -155,6 +155,19 @@ app.get('/api/today', wrap(async (req, res) => {
   res.json(await todayRunning);
 }));
 
+// Deep Analysis (no AI key): 15 indicators × 4 timeframes + news headlines + calendar
+const { deepAnalyze } = require('./src/deep');
+const DEEP_AGE = { '15m': 3 * 60_000, '1h': 5 * 60_000, '4h': 15 * 60_000, '1d': 60 * 60_000 };
+app.post('/api/deep', wrap(async (req, res) => {
+  const symbol = sym(req), tf = tfOf(req);
+  let strategySignal = null;
+  try { strategySignal = liveSignal(await getCandles(symbol, tf, N), symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits); } catch {}
+  res.json(await deepAnalyze({
+    symbol, tf, strategySignal, getPrice,
+    getCandles: (s, t) => getCandles(s, t, t === '1d' ? 600 : N, DEEP_AGE[t], true),
+  }));
+}));
+
 // AI Signal Tracker
 const tracker = require('./src/tracker');
 app.get('/api/ai-tracker', wrap(async (req, res) => {

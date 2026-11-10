@@ -119,3 +119,12 @@ table.calc tr.tot td { border-top: 2px solid var(--line); font-size: 14px; }
 .sq span { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
 .sq span.w { background: var(--buy); } .sq span.l { background: var(--sell); opacity: .8; }
 details summary { cursor: pointer; padding: 4px 0; }
+
+.deep-res { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
+.deep-res .cmp-act { font-size: 24px; }
+table.votes { font-size: 11.5px; margin-top: 4px; }
+table.votes td, table.votes th { padding: 2px 4px; text-align: center; }
+table.votes td:first-child { text-align: left; white-space: normal; }
+table.votes th.cur { color: var(--accent); }
+table.votes tr.tot td { border-top: 2px solid var(--line); font-weight: 700; }
+ul.news li { margin-bottom: 3px; }

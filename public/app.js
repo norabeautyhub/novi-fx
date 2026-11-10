@@ -285,6 +285,62 @@ $('btnExplain').onclick = async () => {
   b.disabled = false;
 };
 
+/* ---------- Deep Analysis (no AI) ---------- */
+const VOTE = (v) => (v > 0 ? '<span class="pos">▲</span>' : v < 0 ? '<span class="neg">▼</span>' : '<span class="muted">•</span>');
+const DMATCH = { ...MATCH, DEEP_ONLY: { cls: 'CAUTION', icon: '⚠️', label: 'Deep විතරයි' } };
+const DMATCH_TXT = {
+  MATCH: 'Strategy එකයි Deep එකයි එකම දිශාව — ශක්තිමත්', CONFLICT: 'Strategy එකයි Deep එකයි විරුද්ධයි — skip කරන්න',
+  MATCH_WAIT: 'දෙකම WAIT — දැන් trade එකක් නැහැ', PARTIAL: 'Strategy signal එකක් තියෙනවා, Deep එක WAIT — ප්‍රවේශමෙන්',
+  DEEP_ONLY: 'Deep එක විතරයි signal දෙන්නේ — strategy එක (backtest කරපු එක) තාම confirm නැහැ',
+};
+function renderDeep(r) {
+  const tfs = ['15m', '1h', '4h', '1d'];
+  const names = (tfs.map((t) => r.frames[t]).find((f) => f && f.votes) || { votes: [] }).votes.map((v) => [v.key, v.name]);
+  const cell = (t, key) => { const f = r.frames[t]; if (!f || !f.votes) return '<td class="muted">!</td>'; const v = f.votes.find((x) => x.key === key); return `<td title="${esc(v.why)}">${VOTE(v.vote)}</td>`; };
+  const m = DMATCH[r.match] || MATCH.PARTIAL;
+  const L = r.levels, trade = ['BUY', 'SELL'].includes(r.action);
+  const main = r.frames[r.tf]?.votes ? r.tf : '1h';
+  const nw = r.news && r.news.items ? r.news.items.map((n) => `<li><span class="muted">${ago(n.time)}</span> · <a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.headline)}</a> <span class="muted">(${esc(n.source)})</span></li>`).join('') : '';
+  const cal = Array.isArray(r.calendar) ? r.calendar.map((e) => `<li>${e.impact === 'High' ? '🔴' : '🟠'} <span class="mono">${dt(e.time)}</span> · ${e.country} ${esc(e.title)}${e.forecast ? ` <span class="muted">(forecast ${esc(e.forecast)}, කලින් ${esc(e.previous || '—')})</span>` : ''}</li>`).join('') : '';
+  return `
+    <div class="ai-head">🔬 Deep Analysis · <span class="muted small">${dt(Date.parse(r.time))} · ${r.symbol} ${r.tf}</span></div>
+    <div class="deep-res"><div class="cmp-act ${r.action}">${r.action}</div>
+      <div><div class="small">Indicators ${r.confidence}% ${r.score > 0 ? 'BUY' : r.score < 0 ? 'SELL' : ''} පැත්තට</div>
+      <div class="conf"><div style="width:${r.confidence}%; background:${r.score > 0 ? 'var(--buy)' : 'var(--sell)'}"></div></div></div></div>
+    ${r.why.length ? `<div class="small muted">WAIT හේතුව: ${r.why.map(esc).join(' · ')}</div>` : ''}
+    ${trade && L ? `<div class="levels mono small"><span>Entry</span><span>${fmt(L.entry)}</span><span>Stop Loss</span><span class="neg">${fmt(L.stopLoss)}</span>
+      <span>TP1 (1.5R)</span><span class="pos">${fmt(L.tp1)}</span><span>TP2 (2.5R)</span><span class="pos">${fmt(L.tp2)}</span>${L.nextLevel ? `<span>ඊළඟ ${r.action === 'BUY' ? 'resistance' : 'support'}</span><span>${fmt(L.nextLevel)}</span>` : ''}</div>
+      <button class="sm ghost" id="btnUseDeep">Deep levels වලින් order fill කරන්න</button>` : ''}
+    <div class="status ${m.cls}"><b>${m.icon} ${m.label}</b> · ${DMATCH_TXT[r.match] || ''}${r.strategy ? ` <span class="muted">(Strategy: ${r.strategy.action})</span>` : ''}</div>
+    ${r.soonHighImpact?.length ? `<div class="status INVALID">🔴 ඉදිරි පැය 24 ඇතුළත high-impact news: ${r.soonHighImpact.map((e) => `${e.country} ${esc(e.title)} — ${dt(e.time)}`).join(', ')}. ඒ වෙලාවට කලින් trade එකක් open කරන්න එපා.</div>` : ''}
+    <div class="ai-sec"><b>📊 Indicators ඡන්ද</b> <span class="muted small">▲ BUY · ▼ SELL · • neutral (mouse එක තිබ්බම විස්තර)</span>
+      <table class="votes"><tr><th></th>${tfs.map((t) => `<th class="${t === r.tf ? 'cur' : ''}">${t}</th>`).join('')}</tr>
+      ${names.map(([k, n]) => `<tr><td>${esc(n)}</td>${tfs.map((t) => cell(t, k)).join('')}</tr>`).join('')}
+      <tr class="tot"><td>▲ / ▼</td>${tfs.map((t) => r.tfScore[t] ? `<td><span class="pos">${r.tfScore[t].buy}</span>/<span class="neg">${r.tfScore[t].sell}</span></td>` : '<td>—</td>').join('')}</tr></table></div>
+    <details class="ai-sec"><summary><b>🔎 ${main} විස්තර</b></summary><ul class="ev">${(r.frames[main].votes || []).map((v) => `<li>${VOTE(v.vote)} <b>${esc(v.name)}</b>: ${esc(v.why)}</li>`).join('')}</ul></details>
+    <div class="ai-sec"><b>📰 අලුත්ම news</b> ${r.news?.error ? `<span class="small neg">${esc(r.news.error)}</span>` : ''}${nw ? `<ul class="ev news">${nw}</ul>` : '<div class="small muted">News නැහැ</div>'}
+      <div class="small muted">AI නැති නිසා news කියවලා තීරණය කරන්නේ ඔයාමයි.</div></div>
+    <div class="ai-sec"><b>📅 ඉදිරි පැය 48 economic events</b> ${r.calendar?.error ? `<span class="small neg">${esc(r.calendar.error)}</span>` : ''}${cal ? `<ul class="ev">${cal}</ul>` : (Array.isArray(r.calendar) ? '<div class="small muted">ලොකු events නැහැ ✓</div>' : '')}</div>
+    <div class="small muted">ⓘ Deep signal එක backtest කරලා නැහැ — ප්‍රධාන signal එක strategy එකයි. මේ analysis එක AI Tracker එකේ save වුණා.</div>`;
+}
+$('btnDeep').onclick = async () => {
+  const b = $('btnDeep'); b.disabled = true;
+  $('deepOut').innerHTML = '<div class="muted">🔬 Timeframes 4ක indicators ගණනය කරනවා, news බලනවා…</div>';
+  try {
+    const r = await api('/api/deep', { method: 'POST', body: { symbol: S.symbol, tf: S.tf } });
+    $('deepOut').innerHTML = renderDeep(r);
+    const u = $('btnUseDeep');
+    if (u) u.onclick = () => {
+      $('oSL').value = (+r.levels.stopLoss).toFixed(digits(S.symbol));
+      $('oTP').value = (+r.levels.tp2).toFixed(digits(S.symbol));
+      S.orderZone = null;
+      $('orderMsg').innerHTML = `<span class="muted">Deep levels දැම්මා (${r.action}). ⚠️ Deep signal එක backtest කරලා නැහැ.</span>`;
+      $('btnCalc').click();
+    };
+  } catch (e) { $('deepOut').innerHTML = `<div class="status INVALID">${esc(e.message)}</div>`; }
+  b.disabled = false;
+};
+
 /* ---------- watchlist & scanner ---------- */
 function renderWatchlist() {
   $('watchlist').innerHTML = Object.entries(S.cfg.instruments).map(([s, inst]) => {
@@ -310,7 +366,7 @@ async function loadTracker() {
   box.innerHTML = '<div class="muted small">AI signals check කරනවා…</div>';
   try {
     const t = await api('/api/ai-tracker');
-    if (!t.analyses) { box.innerHTML = '<div class="muted">තාම AI analyses නැහැ. Signal card එකේ "🤖 AI Analysis + News check" click කරලා analyses එකතු කරන්න. AI signals 50+ ක් එකතු වුණාම මෙතනින් AI ඇත්තටම ලාභද කියලා පේනවා.</div>'; return; }
+    if (!t.analyses) { box.innerHTML = '<div class="muted">තාම AI / Deep analyses නැහැ. Signal card එකේ "🤖 AI Analysis + News check" click කරලා analyses එකතු කරන්න. AI signals 50+ ක් එකතු වුණාම මෙතනින් AI ඇත්තටම ලාභද කියලා පේනවා.</div>'; return; }
     const bm = t.byMatch;
     const enough = t.ai.closed >= 30;
     box.innerHTML = `
@@ -326,11 +382,16 @@ async function loadTracker() {
         ${scoreRow('⚠️ Strategy + AI WAIT (PARTIAL)', bm.PARTIAL.strategy, 'AI එක WAIT කිව්ව strategy signals')}
         ${scoreRow('❌ Strategy + AI CONFLICT', bm.CONFLICT.strategy, 'AI විරුද්ධ වුණ strategy signals')}
         ${scoreRow('🤖 AI විතරයි (AI_ONLY)', bm.AI_ONLY.ai, 'Strategy signal නැති වෙලාවේ AI දුන්න signals')}
+        <tr><td colspan="6" class="small muted" style="padding-top:10px"><b>🔬 Deep Analysis (${t.deepCount})</b></td></tr>
+        ${scoreRow('🔬 Deep signals (ඔක්කොම)', t.deep)}
+        ${scoreRow('✅ Strategy + Deep MATCH', t.deepByMatch.MATCH.strategy, 'Deep එකඟ වුණ strategy signals')}
+        ${scoreRow('❌ Strategy + Deep CONFLICT', t.deepByMatch.CONFLICT.strategy, 'Deep විරුද්ධ වුණ strategy signals')}
+        ${scoreRow('🔬 Deep විතරයි', t.deepByMatch.DEEP_ONLY.ai, 'Strategy signal නැති වෙලාවේ Deep දුන්න signals')}
       </table>
       <p class="small muted">වැදගත්ම ප්‍රශ්නය: "✅ MATCH" row එක "❌ CONFLICT" සහ "⚠️ PARTIAL" rows වලට වඩා හොඳද? හොඳ නම් AI news check එක ඇත්තටම උදව් වෙනවා. Rules: entry මිල පැය 24 ඇතුළත ආවොත් විතරක් trade එකක් ගණන් ගන්නවා · SL/TP · දවස් 7කින් close · trading cost අඩු කරලා.</p>
-      <table><tr><th>වෙලාව</th><th>Market</th><th>Match</th><th>🤖 AI</th><th>AI ප්‍රතිඵලය</th><th>📐 Strategy</th><th>Strategy ප්‍රතිඵලය</th></tr>
+      <table><tr><th>වෙලාව</th><th>Market</th><th>Match</th><th>🤖 AI / 🔬 Deep</th><th>ප්‍රතිඵලය</th><th>📐 Strategy</th><th>Strategy ප්‍රතිඵලය</th></tr>
       ${t.rows.map((r) => `<tr><td class="small">${dt(Date.parse(r.time))}</td><td>${r.symbol} <span class="muted">${r.tf}</span></td><td class="small">${(MATCH[r.match] || {}).icon || ''} ${r.match || ''}</td>
-        <td><span class="pill ${r.ai.action}">${r.ai.action || '—'}</span></td><td class="small">${r.ai.dup ? '<span class="muted">(duplicate)</span>' : outTxt(r.ai.outcome)}</td>
+        <td>${r.kind === 'deep' ? '🔬' : '🤖'} <span class="pill ${r.ai.action}">${r.ai.action || '—'}</span></td><td class="small">${r.ai.dup ? '<span class="muted">(duplicate)</span>' : outTxt(r.ai.outcome)}</td>
         <td><span class="pill ${r.strategy.action}">${r.strategy.action || '—'}</span></td><td class="small">${r.strategy.dup ? '<span class="muted">(duplicate)</span>' : outTxt(r.strategy.outcome)}</td></tr>`).join('')}
       </table>`;
     $('btnTrRef').onclick = loadTracker;
@@ -653,7 +714,7 @@ function renderTfBar() {
 
 function selectSymbol(s) {
   S.symbol = s; store('novi-fx-sym', s); S.orderZone = null; S.dayOpen = null;
-  $('symName').textContent = s; $('aiOut').textContent = ''; $('oSL').value = ''; $('oTP').value = ''; $('calcOut').textContent = '';
+  $('symName').textContent = s; $('aiOut').textContent = ''; $('deepOut').textContent = ''; $('oSL').value = ''; $('oTP').value = ''; $('calcOut').textContent = '';
   applyPrecision(); renderWatchlist(); refreshAll(true);
 }
 

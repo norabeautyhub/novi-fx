@@ -47,6 +47,13 @@ Forex, Gold සහ Crypto analyze කරලා **entry signals** දෙන, **ba
 ## 💵 Backtest screen
 🟢/🟡/🔴 තීරණය · "මගේ සල්ලි වලට මොකද වෙන්නේ" calculator (පටන් ගන්න මුදල + risk %) · පියවරෙන් පියවර ගණන · $ balance chart · දිනුම්/පැරදුම් කොටු + එක දිගට පැරදුණු උපරිමය · chart එකේ trade ලකුණු · trades list · advanced විස්තර.
 
+## 🔬 Deep Analysis (free — AI key ඕන නැහැ)
+Signal card එකේ **🔬 Deep Analysis** button එක:
+- Indicators 15 (EMA 200, EMA 20/50, ADX/DI, Ichimoku, Supertrend, RSI, MACD, Stochastic, Momentum, Bollinger, Support/Resistance, Market structure, Pivot, Fibonacci, Candlestick pattern) × timeframes 4 (15m, 1h, 4h, Daily) ඡන්ද table එක
+- Weighted score එකෙන් Deep signal එක (BUY/SELL/WAIT) + Entry, SL, TP1 1.5R, TP2 2.5R — 4h/Daily විරුද්ධ නම්, RSI extreme නම් WAIT
+- අලුත්ම news headlines (Finnhub) + ඉදිරි පැය 48 economic events (ForexFactory) + පැය 24 ඇතුළත high-impact news warning
+- Strategy signal එක්ක MATCH/CONFLICT, AI Tracker එකේ වෙනම track වෙනවා
+
 ## 🤖 AI Analysis + News check
 Signal card එකේ button එක click කරාම (ANTHROPIC_API_KEY ඕන):
 1. Claude web එකේ අද news search කරනවා (Fed, inflation, USD, geopolitics, ඉදිරි පැය 48 high-impact events)

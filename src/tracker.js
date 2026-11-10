@@ -9,10 +9,14 @@ const path = require('path');
 const { INSTRUMENTS } = require('./instruments');
 
 const LOG = path.join(__dirname, '..', 'data', 'ai-log.json');
+const DEEP_LOG = path.join(__dirname, '..', 'data', 'deep-log.json');
 const FILL_HOURS = 24;   // entry price must be touched within 24h, else "not filled"
 const MAX_HOLD_H = 168;  // close after 7 days at market
 
-function readLog() { try { return JSON.parse(fs.readFileSync(LOG, 'utf8')); } catch { return []; } }
+function readJSON(f) { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return []; } }
+function readLog() {
+  return [...readJSON(LOG).map((e) => ({ ...e, kind: e.kind || 'ai' })), ...readJSON(DEEP_LOG).map((e) => ({ ...e, kind: 'deep' }))];
+}
 
 function costOf(symbol, price) {
   const inst = INSTRUMENTS[symbol] || {};
@@ -75,6 +79,7 @@ async function track(getCandles) {
   for (const [symbol, entries] of Object.entries(bySymbol)) {
     let candles;
     try { candles = await getCandles(symbol); } catch (err) { candles = null; }
+    entries.sort((a, b) => Date.parse(a.time) - Date.parse(b.time));
     const seenAI = new Set(), seenStrat = new Set();
     for (const e of entries) {
       const t0 = Math.floor(Date.parse(e.time) / 1000);
@@ -83,12 +88,12 @@ async function track(getCandles) {
       const aiT = { action: ai.action, entry: ai.entry, sl: ai.stop_loss, tp: ai.take_profit };
       const stT = { action: st.action, entry: st.entry, sl: st.stopLoss, tp: st.target };
       // the same signal analysed twice should count once
-      const aiKey = `${ai.action}|${ai.entry}|${Math.floor(t0 / 7200)}`;
+      const aiKey = `${e.kind}|${ai.action}|${ai.entry}|${Math.floor(t0 / 7200)}`;
       const stKey = `${e.tf}|${st.action}|${st.entry}`;
       const aiDup = seenAI.has(aiKey); seenAI.add(aiKey);
       const stDup = seenStrat.has(stKey); seenStrat.add(stKey);
       rows.push({
-        time: e.time, symbol, tf: e.tf, match: e.match, newsBias: e.newsBias,
+        kind: e.kind, time: e.time, symbol, tf: e.tf, match: e.match, newsBias: e.newsBias,
         ai: { action: ai.action, entry: ai.entry, sl: ai.stop_loss, tp: ai.take_profit, confidence: ai.confidence, outcome: candles && !aiDup ? evalTrade(symbol, aiT, t0, candles) : null, dup: aiDup },
         strategy: { action: st.action, entry: st.entry, sl: st.stopLoss, tp: st.target, status: st.status, outcome: candles && !stDup ? evalTrade(symbol, stT, t0, candles) : null, dup: stDup },
         dataError: !candles,
@@ -96,19 +101,23 @@ async function track(getCandles) {
     }
   }
   rows.sort((a, b) => Date.parse(b.time) - Date.parse(a.time));
-  const aiOut = rows.map((r) => r.ai.outcome).filter(Boolean);
-  const byMatch = {};
-  for (const code of ['MATCH', 'PARTIAL', 'AI_ONLY', 'CONFLICT']) {
-    byMatch[code] = {
-      ai: score(rows.filter((r) => r.match === code).map((r) => r.ai.outcome)),
-      strategy: score(rows.filter((r) => r.match === code).map((r) => r.strategy.outcome)),
-    };
-  }
+  const group = (kind, codes) => {
+    const g = {};
+    for (const code of codes) {
+      const rs = rows.filter((r) => r.kind === kind && r.match === code);
+      g[code] = { ai: score(rs.map((r) => r.ai.outcome)), strategy: score(rs.map((r) => r.strategy.outcome)) };
+    }
+    return g;
+  };
   return {
     time: Date.now(), analyses: log.length,
-    ai: score(aiOut),
+    aiCount: log.filter((e) => e.kind === 'ai').length, deepCount: log.filter((e) => e.kind === 'deep').length,
+    ai: score(rows.filter((r) => r.kind === 'ai').map((r) => r.ai.outcome)),
+    deep: score(rows.filter((r) => r.kind === 'deep').map((r) => r.ai.outcome)),
     strategy: score(rows.map((r) => r.strategy.outcome)),
-    byMatch, rows: rows.slice(0, 200),
+    byMatch: group('ai', ['MATCH', 'PARTIAL', 'AI_ONLY', 'CONFLICT']),
+    deepByMatch: group('deep', ['MATCH', 'PARTIAL', 'DEEP_ONLY', 'CONFLICT']),
+    rows: rows.slice(0, 200),
   };
 }
 
