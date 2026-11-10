@@ -17,6 +17,7 @@
       <label><input type="checkbox" id="tgEma" checked /> EMA</label>
       <label><input type="checkbox" id="tgBb" /> Bollinger</label>
     </div>
+    <button id="btnToday" class="sm">📋 අද Signals <span id="todayCount" class="cnt"></span></button>
     <div id="badges" class="badges"></div>
   </header>
 
@@ -36,6 +37,7 @@
         <button data-tab="history">History</button>
         <button data-tab="backtest">Backtest</button>
         <button data-tab="scanner">Scanner</button>
+        <button data-tab="tracker">🤖 AI Tracker</button>
         <button id="btnPanelSize" class="panel-size" title="Panel එක ලොකු / පොඩි කරන්න">⤢</button>
       </div>
       <div class="tab-body">
@@ -48,9 +50,13 @@
             <span class="muted small">දැනට තියෙන symbol + timeframe · candles 5000</span>
           </div>
           <div id="btOut"></div>
-          <div id="btChart"></div>
         </div>
-        <div id="tab-scanner" class="tab"></div>
+        <div id="tab-tracker" class="tab"><div class="muted small">Loading…</div></div>
+        <div id="tab-scanner" class="tab">
+          <div id="todayBox"></div>
+          <div class="panel-title" style="padding:10px 0 4px">සියලු markets — එක timeframe එකක් <button id="btnScan2" class="sm ghost">Scan</button></div>
+          <div id="scanBox" class="muted small">"Scan" click කරන්න.</div>
+        </div>
       </div>
     </section>
 

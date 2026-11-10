@@ -67,6 +67,8 @@ async function loadChart(fit) {
   const last = d.candles[d.candles.length - 1], first = d.candles[Math.max(0, d.candles.length - 25)];
   S.lastCandle = { ...last };
   S.lastCandleLoad = Date.now();
+  S.chartFrom = d.candles[0].time;
+  if (fit) drawTradeMarkers();
   S.dayOpen = first.open;
   setHeaderPrice(S.prices[S.symbol] ?? last.close);
 }
@@ -295,16 +297,86 @@ function renderWatchlist() {
   document.querySelectorAll('.wl-item').forEach((el) => (el.onclick = () => selectSymbol(el.dataset.s)));
 }
 
+/* ---------- AI signal tracker ---------- */
+const RES = { WIN: ['pos', '✅ දිනුවා'], LOSS: ['neg', '❌ පැරදුණා'], OPEN: ['', '⏳ Open'], NOT_FILLED: ['muted', '— Entry නැහැ'], PENDING: ['muted', '⏳ Entry එනකම්'], WAITING: ['muted', '⏳'] };
+const outTxt = (o) => !o ? '<span class="muted">—</span>' : `<span class="${RES[o.result]?.[0] || ''}">${RES[o.result]?.[1] || o.result}${o.r != null ? ` (${o.r > 0 ? '+' : ''}${o.r}R)` : ''}</span>`;
+function scoreRow(name, sc, note) {
+  const usd = (sc.netR * 10).toFixed(0);
+  return `<tr><td><b>${name}</b>${note ? `<br><span class="muted small">${note}</span>` : ''}</td><td>${sc.signals}</td><td>${sc.closed}</td>
+    <td>${sc.winRate == null ? '—' : sc.winRate + '%'}</td><td class="${cls(sc.netR)}"><b>${sc.netR > 0 ? '+' : ''}${sc.netR}R</b><br><span class="small">$10 risk: ${sc.netR >= 0 ? '+' : '−'}$${Math.abs(usd)}</span></td><td class="small muted">${sc.open} open · ${sc.notFilled} entry නැහැ · ${sc.pending} බලාගෙන</td></tr>`;
+}
+async function loadTracker() {
+  const box = $('tab-tracker');
+  box.innerHTML = '<div class="muted small">AI signals check කරනවා…</div>';
+  try {
+    const t = await api('/api/ai-tracker');
+    if (!t.analyses) { box.innerHTML = '<div class="muted">තාම AI analyses නැහැ. Signal card එකේ "🤖 AI Analysis + News check" click කරලා analyses එකතු කරන්න. AI signals 50+ ක් එකතු වුණාම මෙතනින් AI ඇත්තටම ලාභද කියලා පේනවා.</div>'; return; }
+    const bm = t.byMatch;
+    const enough = t.ai.closed >= 30;
+    box.innerHTML = `
+      <div class="row"><b>🤖 AI Signal Tracker</b><span class="muted small">Analyses ${t.analyses} · update ${dt(t.time)}</span><button id="btnTrRef" class="sm ghost">Refresh</button></div>
+      <div class="status ${enough ? (t.ai.netR > 0 ? 'ACTIVE' : 'INVALID') : 'CAUTION'}">${enough
+        ? (t.ai.netR > 0 ? `✅ AI signals ${t.ai.closed}කින් ලාභයි (${t.ai.netR}R).` : `❌ AI signals ${t.ai.closed}කින් පාඩුයි (${t.ai.netR}R) — AI signal එක trade කරන්න එපා, news check එකට විතරක් පාවිච්චි කරන්න.`)
+        : `⚠️ ඉවර වුණු AI signals ${t.ai.closed}යි. තීරණයක් ගන්න අවම 30–50ක් ඕන — තව analyses එකතු කරන්න.`}</div>
+      <table class="wrap">
+        <tr><th></th><th>Signals</th><th>ඉවර වුණු</th><th>Win rate</th><th>ලාභ / පාඩු</th><th></th></tr>
+        ${scoreRow('🤖 AI signals (ඔක්කොම)', t.ai)}
+        ${scoreRow('📐 Strategy signals', t.strategy, 'AI analysis කරපු වෙලාවල තිබුණ strategy signals')}
+        ${scoreRow('✅ Strategy + AI MATCH', bm.MATCH.strategy, 'AI එකඟ වුණ strategy signals')}
+        ${scoreRow('⚠️ Strategy + AI WAIT (PARTIAL)', bm.PARTIAL.strategy, 'AI එක WAIT කිව්ව strategy signals')}
+        ${scoreRow('❌ Strategy + AI CONFLICT', bm.CONFLICT.strategy, 'AI විරුද්ධ වුණ strategy signals')}
+        ${scoreRow('🤖 AI විතරයි (AI_ONLY)', bm.AI_ONLY.ai, 'Strategy signal නැති වෙලාවේ AI දුන්න signals')}
+      </table>
+      <p class="small muted">වැදගත්ම ප්‍රශ්නය: "✅ MATCH" row එක "❌ CONFLICT" සහ "⚠️ PARTIAL" rows වලට වඩා හොඳද? හොඳ නම් AI news check එක ඇත්තටම උදව් වෙනවා. Rules: entry මිල පැය 24 ඇතුළත ආවොත් විතරක් trade එකක් ගණන් ගන්නවා · SL/TP · දවස් 7කින් close · trading cost අඩු කරලා.</p>
+      <table><tr><th>වෙලාව</th><th>Market</th><th>Match</th><th>🤖 AI</th><th>AI ප්‍රතිඵලය</th><th>📐 Strategy</th><th>Strategy ප්‍රතිඵලය</th></tr>
+      ${t.rows.map((r) => `<tr><td class="small">${dt(Date.parse(r.time))}</td><td>${r.symbol} <span class="muted">${r.tf}</span></td><td class="small">${(MATCH[r.match] || {}).icon || ''} ${r.match || ''}</td>
+        <td><span class="pill ${r.ai.action}">${r.ai.action || '—'}</span></td><td class="small">${r.ai.dup ? '<span class="muted">(duplicate)</span>' : outTxt(r.ai.outcome)}</td>
+        <td><span class="pill ${r.strategy.action}">${r.strategy.action || '—'}</span></td><td class="small">${r.strategy.dup ? '<span class="muted">(duplicate)</span>' : outTxt(r.strategy.outcome)}</td></tr>`).join('')}
+      </table>`;
+    $('btnTrRef').onclick = loadTracker;
+  } catch (e) { box.innerHTML = `<span class="neg">${e.message}</span>`; }
+}
+
+/* ---------- today's verified signals ---------- */
+const ago = (t) => { const m = Math.round((Date.now() / 1000 - t) / 60); return m < 60 ? `විනාඩි ${m}කට කලින්` : m < 1440 ? `පැය ${Math.round(m / 60)}කට කලින්` : `දවස් ${Math.round(m / 1440)}කට කලින්`; };
+async function loadToday(force) {
+  const box = $('todayBox');
+  if (box && (force || !S.today)) box.innerHTML = '<div class="muted small">✅ Verified markets check කරනවා… (පළවෙනි වතාවට විනාඩියක් විතර යන්න පුළුවන්)</div>';
+  try {
+    const t = await api('/api/today' + (force ? '?force=1' : ''));
+    S.today = t;
+    const active = t.signals.filter((x) => x.status === 'ACTIVE').length;
+    $('todayCount').textContent = t.signals.length ? `${active}/${t.signals.length}` : '';
+    $('todayCount').className = 'cnt' + (active ? ' on' : '');
+    if (!box) return;
+    const cards = t.signals.map((x) => `
+      <div class="tcard" data-s="${x.symbol}" data-tf="${x.tf}">
+        <div class="tc-top"><b>${x.symbol}</b> <span class="muted">${x.tf}</span> <span class="pill ${x.action}">${x.action}</span> ${profBadge(x.profile)}</div>
+        <div class="status ${x.status}" style="margin:4px 0"><b>${x.status}</b> · ${x.statusText}</div>
+        <div class="mono small">Zone ${fmt(x.zone[0], x.symbol)} – ${fmt(x.zone[1], x.symbol)} · <span class="neg">SL ${fmt(x.stopLoss, x.symbol)}</span> · <span class="pos">Target ${fmt(x.target, x.symbol)}</span></div>
+        <div class="small muted">දැන් ${fmt(x.price, x.symbol)} · signal එක ${ago(x.signalTime)} · ${STRAT_NAME[x.strategy] || x.strategy}</div>
+      </div>`).join('');
+    box.innerHTML = `<div class="panel-title" style="padding:4px 0">✅ අද Verified Signals <span class="muted small">update: ${dt(t.time)}</span> <button id="btnTodayRef" class="sm ghost">Refresh</button></div>
+      ${t.signals.length ? `<div class="tgrid">${cards}</div>` : `<div class="muted small">දැනට verified signals නැහැ. Verified markets ${t.checked.length}ක් check කළා (${t.checked.map((c) => c.symbol + ' ' + c.tf).join(', ')}). ඉවසලා ඉන්න — හොඳ setups අඩුවෙන් එන්නේ.</div>`}
+      ${t.errors.length ? `<div class="small neg">Check කරන්න බැරි වුණා: ${t.errors.map((e) => e.symbol + ' ' + e.tf).join(', ')}</div>` : ''}`;
+    $('btnTodayRef').onclick = () => loadToday(true);
+    document.querySelectorAll('.tcard').forEach((el) => (el.onclick = () => {
+      S.tf = el.dataset.tf; S.tfSec = TF_SEC[S.tf]; store('novi-fx-tf', S.tf); renderTfBar(); selectSymbol(el.dataset.s);
+    }));
+  } catch (e) { if (box) box.innerHTML = `<span class="neg small">${e.message}</span>`; }
+}
+$('btnToday').onclick = () => { switchTab('scanner'); loadToday(false); };
+
 async function runScan() {
   $('btnScan').disabled = true;
-  $('tab-scanner').innerHTML = '<span class="muted">Scan කරනවා…</span>';
+  $('scanBox').innerHTML = '<span class="muted">Scan කරනවා… (markets 17 — විනාඩියක් විතර යන්න පුළුවන්)</span>';
   try {
     const rows = await api(`/api/scan?tf=${S.tf}`);
     S.scan = Object.fromEntries(rows.map((r) => [r.symbol, r]));
     renderWatchlist();
     const onlyV = store('novi-fx-onlyv') !== '0';
     const shown = rows.filter((r) => !onlyV || r.error || ['verified', 'weak'].includes(r.profile));
-    $('tab-scanner').innerHTML = `<div class="row small"><label><input type="checkbox" id="onlyV" ${onlyV ? 'checked' : ''} style="width:auto"> Verified / Weak විතරක් පෙන්නන්න</label><span class="muted">Timeframe: ${S.tf}</span></div>
+    $('scanBox').innerHTML = `<div class="row small"><label><input type="checkbox" id="onlyV" ${onlyV ? 'checked' : ''} style="width:auto"> Verified / Weak විතරක් පෙන්නන්න</label><span class="muted">Timeframe: ${S.tf}</span></div>
       <table><tr><th>Symbol</th><th>Strategy</th><th>Signal</th><th>Status</th><th>Price</th><th>Entry</th><th>SL</th><th>Target</th></tr>
       ${shown.map((r) => r.error ? `<tr><td>${r.symbol}</td><td colspan="7" class="muted">${r.error}</td></tr>` :
         `<tr data-s="${r.symbol}" style="cursor:pointer"><td>${r.symbol}</td><td>${profBadge(r.profile)}</td><td><span class="pill ${r.action}">${r.action}</span></td><td class="small">${r.status || ''}</td>
@@ -313,10 +385,11 @@ async function runScan() {
       <p class="muted small">Row එක click කරලා chart එක බලන්න.</p>`;
     $('onlyV').onchange = (e) => { store('novi-fx-onlyv', e.target.checked ? '1' : '0'); runScan(); };
     document.querySelectorAll('#tab-scanner tr[data-s]').forEach((el) => (el.onclick = () => selectSymbol(el.dataset.s)));
-  } catch (e) { $('tab-scanner').innerHTML = `<span class="neg">${e.message}</span>`; }
+  } catch (e) { $('scanBox').innerHTML = `<span class="neg">${e.message}</span>`; }
   $('btnScan').disabled = false;
 }
 $('btnScan').onclick = () => { switchTab('scanner'); runScan(); };
+$('btnScan2').onclick = () => runScan();
 
 /* ---------- backtest + optimizer ---------- */
 let btChart, btLine;
@@ -327,25 +400,116 @@ const statBoxes = (s) => `<div class="stats">
   <div>Wins<b class="pos">${s.wins}</b></div><div>Losses<b class="neg">${s.losses}</b></div></div>`;
 const day = (t) => new Date(t * 1000).toISOString().slice(0, 10);
 
+const money0 = (v) => `${v < 0 ? '−' : '+'}$${Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+const usd = (v) => `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+
+function streaks(tr) {
+  let maxL = 0, maxW = 0, l = 0, w = 0;
+  for (const t of tr) { if (t.r > 0) { w++; l = 0; } else { l++; w = 0; } maxL = Math.max(maxL, l); maxW = Math.max(maxW, w); }
+  return { maxL, maxW };
+}
+
+function renderBacktest() {
+  const r = S.bt; if (!r) return;
+  const s = r.stats, p = r.profile, tr = r.trades;
+  const start = Math.max(1, +(store('novi-fx-bt-start') || 1000));
+  const riskPct = Math.max(0.1, +(store('novi-fx-bt-risk') || 1));
+  const risk$ = (start * riskPct) / 100;
+  const months = Math.max(0.1, (s.to - s.from) / (30.44 * 86400));
+  const per = (s.trades / months).toFixed(1);
+  const wins = tr.filter((t) => t.r > 0), losses = tr.filter((t) => t.r <= 0);
+  const grossWin = wins.reduce((a, t) => a + t.gross, 0) * risk$;
+  const grossLoss = losses.reduce((a, t) => a + t.gross, 0) * risk$;
+  const costs = tr.reduce((a, t) => a + t.cost, 0) * risk$;
+  const net = grossWin + grossLoss - costs;
+  const tp = p.exits.tpR;
+  const allTP = wins.every((t) => Math.abs(t.gross - tp) < 1e-6), allSL = losses.every((t) => Math.abs(t.gross + 1) < 1e-6);
+  const { maxL, maxW } = streaks(tr);
+
+  // 1. verdict light
+  let light, title, sentence;
+  const period = months >= 12 ? `අවුරුදු ${(months / 12).toFixed(1)}` : `මාස ${months.toFixed(1)}`;
+  if (s.trades < 20) { light = '⚪'; title = 'Data මදි'; sentence = `${period} කට trades ${s.trades}යි — තීරණයකට මදි.`; }
+  else if (net > 0 && s.profitFactor >= 1.3) { light = '🟢'; title = 'හොඳයි'; sentence = `${period} ක trades ${s.trades} කින් පැහැදිලි ලාභයක් ආවා.`; }
+  else if (net > 0) { light = '🟡'; title = 'ලාභය පොඩියි'; sentence = `${period} ක trades ${s.trades} කින් ආවේ පොඩි ලාභයක් විතරයි — ඒ කාලයේ හොඳට වැඩ කළේ නැහැ.`; }
+  else { light = '🔴'; title = 'පාඩුයි'; sentence = `${period} ක trades ${s.trades} කින් පාඩුයි — මේ කාලයේ මේ strategy එක වැඩ කළේ නැහැ.`; }
+
+  const winLine = allTP && wins.length ? `${wins.length} දිනුම් × ${usd(risk$ * tp)} <span class="muted">(${tp} × ${usd(risk$)})</span>` : `දිනුම් ${wins.length}`;
+  const lossLine = allSL && losses.length ? `${losses.length} පැරදුම් × ${usd(risk$)}` : `පැරදුම් ${losses.length}`;
+
+  $('btOut').innerHTML = `
+    <div class="verdict v-${light}"><div class="v-light">${light}</div><div><div class="v-title">${title}</div><div>${sentence}</div>
+      <div class="small muted">${S.symbol} ${S.tf} · ${STRAT_NAME[p.strategy] || p.strategy} · ${day(s.from)} → ${day(s.to)} · මාසෙකට signals ${per}ක් විතර</div></div></div>
+
+    <div class="bt-sec">
+      <div class="bt-h">💵 මගේ සල්ලි වලට මොකද වෙන්නේ?</div>
+      <div class="row small">පටන් ගන්න මුදල $ <input id="btStart" type="number" value="${start}" min="1" style="width:90px">
+        හැම trade එකකටම risk % <input id="btRisk" type="number" value="${riskPct}" step="0.5" min="0.1" style="width:60px">
+        <span class="muted">= trade එකකට <b>${usd(risk$)}</b> risk (SL වැදුනොත් නැති වෙන ගාණ)</span></div>
+      <table class="calc">
+        <tr><td>✅ ${winLine}</td><td class="pos">${money0(grossWin)}</td></tr>
+        <tr><td>❌ ${lossLine}</td><td class="neg">${money0(grossLoss)}</td></tr>
+        <tr><td>💸 Trading costs (spread/commission) — trades ${s.trades}</td><td class="neg">${money0(-costs)}</td></tr>
+        <tr class="tot"><td>අන්තිම ලාභය / පාඩුව</td><td class="${cls(net)}">${money0(net)}</td></tr>
+        <tr class="tot"><td>${usd(start)} → අන්තිම balance එක</td><td><b>${usd(start + net)}</b> <span class="${cls(net)}">(${net >= 0 ? '+' : ''}${((net / start) * 100).toFixed(1)}%)</span></td></tr>
+      </table>
+    </div>
+
+    <div class="bt-sec"><div class="bt-h">📈 Balance එක වෙනස් වුණ හැටි</div><div id="btCurve" style="height:150px"></div></div>
+
+    <div class="bt-sec"><div class="bt-h">🟩🟥 දිනුම් / පැරදුම් (පිළිවෙළට)</div>
+      <div class="sq">${tr.map((t) => `<span class="${t.r > 0 ? 'w' : 'l'}" title="${day(t.entryTime)} ${t.side} ${money0(t.r * risk$)}"></span>`).join('')}</div>
+      <div class="small">එක දිගට පැරදුණු වැඩිම වාර ගණන: <b class="neg">${maxL}</b> (${money0(-maxL * risk$)}) · එක දිගට දිනපු වැඩිම: <b class="pos">${maxW}</b>
+        <br><span class="muted">පාඩු ${maxL}ක් එක දිගට එනකොටත් ඉවසලා ඉන්න ඕන — ඒක මේ strategy එකේ සාමාන්‍ය දෙයක්.</span></div></div>
+
+    <div class="bt-sec"><button id="btnMarkers" class="sm ghost">${S.markersOn ? '📍 Chart එකේ trades හංගන්න' : '📍 Chart එකේ trades පෙන්නන්න'}</button>
+      <span class="small muted">▲ BUY / ▼ SELL ලකුණු chart එකේ (chart එකේ තියෙන කාලයට විතරක්)</span></div>
+
+    <details class="bt-sec"><summary><b>📋 Trades list (${tr.length})</b></summary>
+      <table><tr><th>දිනය</th><th></th><th>Entry</th><th>SL</th><th>Target</th><th>ප්‍රතිඵලය</th><th>කාලය</th></tr>
+      ${tr.slice().reverse().map((t) => `<tr><td class="small">${dt(t.entryTime * 1000)}</td><td><span class="pill ${t.side}">${t.side}</span></td>
+        <td class="mono">${fmt(t.entry)}</td><td class="mono">${fmt(t.stop)}</td><td class="mono">${fmt(t.target)}</td>
+        <td class="${cls(t.r)}"><b>${money0(t.r * risk$)}</b> <span class="small muted">${t.reason === 'TP' ? 'Target වැදුනා' : t.reason === 'SL' ? 'SL වැදුනා' : t.reason}</span></td>
+        <td class="small muted">පැය ${Math.round((t.exitTime - t.entryTime) / 3600)}</td></tr>`).join('')}</table></details>
+
+    <details class="bt-sec"><summary><b>🔧 විස්තර (advanced)</b></summary>
+      ${profileLine(p)}
+      ${statBoxes(s)}
+      <p class="small muted">R = trade එකක risk කරන මුදල (මෙතන ${usd(risk$)}). Profit factor = දිනපු මුදල ÷ පැරදුණු මුදල (1 ට වැඩි නම් ලාභ). Max DD = ඉහළම තැනේ ඉඳන් පහළට ගිය උපරිමය. Cost = trade එකකට ${s.cost}.</p>
+    </details>`;
+
+  // balance curve in $
+  if (btChart) { btChart.remove(); btChart = null; }
+  btChart = LightweightCharts.createChart($('btCurve'), { ...chartOpts, autoSize: true });
+  btLine = btChart.addAreaSeries({ lineColor: '#3b82f6', topColor: 'rgba(59,130,246,.3)', bottomColor: 'rgba(59,130,246,0)', lineWidth: 2 });
+  let bal = start; const pts = [{ time: s.from, value: start }]; const seen = new Set([s.from]);
+  for (const t of tr) { bal += t.r * risk$; if (!seen.has(t.exitTime)) { seen.add(t.exitTime); pts.push({ time: t.exitTime, value: +bal.toFixed(2) }); } else pts[pts.length - 1].value = +bal.toFixed(2); }
+  btLine.setData(pts);
+  btLine.createPriceLine({ price: start, color: '#8b98a8', lineStyle: 2, lineWidth: 1, title: 'Start' });
+  btChart.timeScale().fitContent();
+
+  $('btStart').onchange = (e) => { store('novi-fx-bt-start', e.target.value); renderBacktest(); };
+  $('btRisk').onchange = (e) => { store('novi-fx-bt-risk', e.target.value); renderBacktest(); };
+  $('btnMarkers').onclick = () => { S.markersOn = !S.markersOn; drawTradeMarkers(); renderBacktest(); };
+}
+
+function drawTradeMarkers() {
+  if (!S.markersOn || !S.bt || S.bt.symbol !== S.symbol || S.bt.tf !== S.tf) { candleS.setMarkers([]); return; }
+  const risk$ = (Math.max(1, +(store('novi-fx-bt-start') || 1000)) * Math.max(0.1, +(store('novi-fx-bt-risk') || 1))) / 100;
+  const m = S.bt.trades.filter((t) => t.entryTime >= (S.chartFrom || 0)).map((t) => ({
+    time: t.entryTime, position: t.side === 'BUY' ? 'belowBar' : 'aboveBar', shape: t.side === 'BUY' ? 'arrowUp' : 'arrowDown',
+    color: t.r > 0 ? '#22c55e' : '#ef4444', text: money0(t.r * risk$),
+  }));
+  candleS.setMarkers(m);
+}
+
 $('btnBacktest').onclick = async () => {
   $('btOut').innerHTML = '<span class="muted">Backtest කරනවා… (candles 5000ක් ගන්නවා)</span>';
   try {
     const r = await api(`/api/backtest?symbol=${S.symbol}&tf=${S.tf}`);
-    const s = r.stats, p = r.profile;
-    const verdict = s.trades < 20 ? '⚠️ Trades 20කට අඩුයි — මේ කාලයේ results විශ්වාස කරන්න මදි.'
-      : s.netR > 0 && s.profitFactor >= 1.15 ? '✅ මේ කාලයේ profitable. (අනාගතයේත් එහෙමමයි කියලා guarantee නැහැ.)'
-      : s.netR > 0 ? '⚠️ පොඩි ලාභයක් විතරයි.' : '❌ මේ කාලයේ පාඩුයි.';
-    $('btOut').innerHTML = `${profileLine(p)}
-      <p class="small muted">${day(s.from)} → ${day(s.to)} · Trading cost එක trade එකකට ${s.cost} (spread + commission) අඩු කරලා තියෙන්නේ</p>
-      ${statBoxes(s)}
-      <p class="small">${verdict} <span class="muted">1R = එක trade එකක risk කරන මුදල. උදා: $10 risk කරනවා නම් Net ${s.netR}R = $${(s.netR * 10).toFixed(0)}.</span></p>`;
-    if (!btChart) {
-      btChart = LightweightCharts.createChart($('btChart'), { ...chartOpts, autoSize: true });
-      btLine = btChart.addLineSeries({ color: '#3b82f6', lineWidth: 2 });
-    }
-    const seen = new Set();
-    btLine.setData(r.curve.filter((pt) => !seen.has(pt.time) && seen.add(pt.time)));
-    btChart.timeScale().fitContent();
+    S.bt = { ...r, symbol: S.symbol, tf: S.tf };
+    renderBacktest();
+    drawTradeMarkers();
   } catch (e) { $('btOut').innerHTML = `<span class="neg">${e.message}</span>`; }
 };
 
@@ -444,7 +608,8 @@ $('btnSell').onclick = () => placeOrder('SELL');
 
 /* ---------- tabs / nav ---------- */
 function switchTab(name) {
-  if ((name === 'backtest' || name === 'scanner') && document.querySelector('.tab-body').offsetHeight < 330) setPanelH(380);
+  if (name === 'tracker') loadTracker();
+  if ((name === 'backtest' || name === 'scanner' || name === 'tracker') && document.querySelector('.tab-body').offsetHeight < 330) setPanelH(380);
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + name));
 }
@@ -509,6 +674,7 @@ function loop() {
   if (age > (isLive(S.symbol) ? 300_000 : 60_000)) refreshAll(false);
   loadPaper();
   if (tick % 60 === 0) loadMtf();
+  if (tick % 100 === 0) loadToday(false); // ~5 min
   for (const s of Object.keys(S.cfg.instruments)) {
     const d = document.querySelector(`[data-dot="${s}"]`);
     if (d) { d.className = 'dot ' + (isLive(s) ? 'on' : ''); d.title = isLive(s) ? 'LIVE' : 'Delayed'; }
@@ -536,5 +702,6 @@ function loop() {
   applyPrecision(); renderTfBar(); renderWatchlist();
   await refreshAll(true);
   loadPaper();
+  loadToday(false);
   setInterval(loop, 3_000);
 })();

@@ -54,7 +54,7 @@ async function fromTwelveData(inst, tf, limit) {
 
 // DATA_MODE=demo → synthetic random-walk candles (for testing without internet/API keys)
 const TF_SEC = { '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
-const BASE = { XAUUSD: 2400, EURUSD: 1.08, GBPUSD: 1.27, AUDUSD: 0.66, USDJPY: 150, USDCAD: 1.36, USDCHF: 0.88, BTCUSDT: 65000, ETHUSDT: 3200, SOLUSDT: 150 };
+const BASE = { XAUUSD: 2400, EURUSD: 1.08, GBPUSD: 1.27, AUDUSD: 0.66, USDJPY: 150, USDCAD: 1.36, USDCHF: 0.88, BTCUSDT: 65000, ETHUSDT: 3200, SOLUSDT: 150, XAGUSD: 30, GBPJPY: 195, EURJPY: 165, NZDUSD: 0.6, EURGBP: 0.85, XRPUSDT: 2.2, BNBUSDT: 650 };
 function demoCandles(symbol, tf, limit) {
   let seed = [...(symbol + tf)].reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7) >>> 0;
   const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
@@ -88,7 +88,18 @@ function tdThrottle() {
   tdCalls.push(now);
 }
 
-async function getCandles(symbol, tf = '1h', limit = 500, maxAgeMs) {
+// Wait (instead of failing) until a Twelve Data slot is free — used by background scans
+async function tdWait(maxWaitMs = 75_000) {
+  const until = Date.now() + maxWaitMs;
+  for (;;) {
+    try { return tdThrottle(); } catch (e) {
+      if (Date.now() > until) throw e;
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  }
+}
+
+async function getCandles(symbol, tf = '1h', limit = 500, maxAgeMs, wait = false) {
   const inst = INSTRUMENTS[symbol];
   if (!inst) throw new Error(`Unknown symbol ${symbol}`);
   if (!TD_TF[tf]) throw new Error(`Unknown timeframe ${tf}`);
@@ -97,7 +108,8 @@ async function getCandles(symbol, tf = '1h', limit = 500, maxAgeMs) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < (maxAgeMs ?? CACHE_MS[inst.provider])) return hit.data;
   if (inst.provider === 'twelvedata') {
-    try { tdThrottle(); } catch (e) { if (hit) return hit.data; throw e; }
+    if (wait && !hit) await tdWait();
+    else try { tdThrottle(); } catch (e) { if (hit) return hit.data; throw e; }
   }
 
   const data = inst.provider === 'binance'

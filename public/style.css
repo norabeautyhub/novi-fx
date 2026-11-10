@@ -99,3 +99,23 @@ table.wrap td, table.wrap th { white-space: normal; }
 .ai-sec.advice { background: rgba(59,130,246,.12); border-left: 3px solid var(--accent); padding: 6px 8px; border-radius: 4px; }
 ul.ev { margin: 3px 0; padding-left: 16px; }
 .ai-out a { color: var(--accent); word-break: break-all; }
+
+.cnt { display: inline-block; min-width: 0; font-size: 11px; margin-left: 4px; }
+.cnt.on { background: var(--buy); color: #000; border-radius: 8px; padding: 0 6px; font-weight: 700; }
+.tgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px; }
+.tcard { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px; cursor: pointer; }
+.tcard:hover { border-color: var(--accent); }
+.tc-top { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+.verdict { display: flex; gap: 12px; align-items: center; border-radius: 8px; padding: 10px 12px; margin: 6px 0; border: 1px solid var(--line); background: var(--panel2); }
+.v-light { font-size: 34px; line-height: 1; }
+.v-title { font-size: 18px; font-weight: 800; }
+.verdict.v-🟢 { border-color: var(--buy); } .verdict.v-🔴 { border-color: var(--sell); } .verdict.v-🟡 { border-color: var(--warn); }
+.bt-sec { margin: 10px 0; }
+.bt-h { font-weight: 700; margin-bottom: 4px; }
+table.calc { max-width: 560px; } table.calc td { white-space: normal; } table.calc td:last-child { text-align: right; font-weight: 600; font-family: ui-monospace, Menlo, Consolas, monospace; }
+table.calc tr.tot td { border-top: 2px solid var(--line); font-size: 14px; }
+.sq { display: flex; flex-wrap: wrap; gap: 3px; margin: 4px 0 6px; }
+.sq span { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+.sq span.w { background: var(--buy); } .sq span.l { background: var(--sell); opacity: .8; }
+details summary { cursor: pointer; padding: 4px 0; }

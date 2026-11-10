@@ -119,12 +119,54 @@ async function mtfFor(symbol) {
 app.get('/api/mtf', wrap(async (req, res) => res.json(await mtfFor(sym(req)))));
 
 // Scan all instruments on one timeframe
+// "Today's verified signals": every symbol × timeframe whose profile is verified/weak,
+// only BUY/SELL signals that are still valid. Waits for Twelve Data slots instead of failing.
+const { getProfile } = require('./src/profiles');
+const TODAY_AGE = { '5m': 2 * 60_000, '15m': 5 * 60_000, '1h': 10 * 60_000, '4h': 20 * 60_000, '1d': 60 * 60_000 };
+let todayCache = null, todayRunning = null;
+async function buildToday() {
+  const signals = [], checked = [], errors = [];
+  for (const s of Object.keys(INSTRUMENTS)) {
+    for (const tf of TIMEFRAMES) {
+      const prof = getProfile(s, tf);
+      if (!['verified', 'weak'].includes(prof.status)) continue;
+      checked.push({ symbol: s, tf, status: prof.status });
+      try {
+        const candles = await getCandles(s, tf, N, TODAY_AGE[tf], true);
+        const sig = liveSignal(candles, s, tf, TF_SEC[tf], INSTRUMENTS[s].digits);
+        if (!['BUY', 'SELL'].includes(sig.action)) continue;
+        const price = await getPrice(s);
+        const st = signalStatus(sig, price, Date.now() / 1000);
+        if (['INVALID', 'EXPIRED', 'DONE'].includes(st?.code)) continue;
+        signals.push({ symbol: s, tf, action: sig.action, profile: prof.status, strategy: prof.strategy, status: st?.code, statusText: st?.text,
+          price, entry: sig.entry, stopLoss: sig.stopLoss, target: sig.tp2, zone: sig.zone, signalTime: sig.signalTime, expiresAt: sig.expiresAt });
+      } catch (e) { errors.push({ symbol: s, tf, error: e.message }); }
+    }
+  }
+  const order = { ACTIVE: 0, CAUTION: 1, MISSED: 2 };
+  signals.sort((a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3) || b.signalTime - a.signalTime);
+  todayCache = { time: Date.now(), signals, checked, errors };
+  return todayCache;
+}
+app.get('/api/today', wrap(async (req, res) => {
+  const fresh = todayCache && Date.now() - todayCache.time < 4 * 60_000 && !req.query.force;
+  if (fresh) return res.json(todayCache);
+  if (!todayRunning) todayRunning = buildToday().finally(() => { todayRunning = null; });
+  res.json(await todayRunning);
+}));
+
+// AI Signal Tracker
+const tracker = require('./src/tracker');
+app.get('/api/ai-tracker', wrap(async (req, res) => {
+  res.json(await tracker.track((symbol) => getCandles(symbol, '1h', N, 10 * 60_000, true)));
+}));
+
 app.get('/api/scan', wrap(async (req, res) => {
   const tf = tfOf(req);
   const results = [];
   for (const s of Object.keys(INSTRUMENTS)) {
     try {
-      const sig = liveSignal(await getCandles(s, tf, N, 5 * 60_000), s, tf, TF_SEC[tf], INSTRUMENTS[s].digits);
+      const sig = liveSignal(await getCandles(s, tf, N, 5 * 60_000, true), s, tf, TF_SEC[tf], INSTRUMENTS[s].digits);
       const price = await getPrice(s);
       const st = signalStatus(sig, price, Date.now() / 1000);
       results.push({ symbol: s, action: sig.action, profile: sig.profile.status, strategy: sig.profile.strategy, price, entry: sig.entry, stopLoss: sig.stopLoss, tp1: sig.tp1, tp2: sig.tp2, zone: sig.zone, status: st?.code || null, live: stream.isLive(s) });

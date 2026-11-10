@@ -14,8 +14,8 @@ Forex, Gold සහ Crypto analyze කරලා **entry signals** දෙන, **ba
 ## Markets සහ data
 | Market | Live prices (WebSocket) | Chart history (candles) |
 |---|---|---|
-| BTC, ETH, SOL | Binance — key ඕන නැහැ | Binance |
-| XAUUSD + Forex pairs 6 | Finnhub — free key (`FINNHUB_API_KEY`) | Twelve Data — free key |
+| BTC, ETH, SOL, XRP, BNB | Binance — key ඕන නැහැ | Binance |
+| XAUUSD, XAGUSD + Forex pairs 11 | Finnhub — free key (`FINNHUB_API_KEY`) | Twelve Data — free key |
 
 - Live මිල තත්පරයෙන් තත්පරයට chart එකේ අන්තිම candle එක, watchlist එක, P&L සහ signal status update කරනවා.
 - Watchlist එකේ කොළ පාට තිත (●) = LIVE. අළු පාට = delayed (විනාඩියකට සැරයක්).
@@ -37,6 +37,15 @@ Forex, Gold සහ Crypto analyze කරලා **entry signals** දෙන, **ba
 - **Trend Breakout:** trend පැත්තට candles 55 ක high/low එක break වෙනකොට entry.
 - **Optimizer (Backtest tab):** ඔයාගේ machine එකේ අලුත්ම candles 5000 ගෙන, 60% එකේ settings 112 න් හොඳම එක තෝරලා, ඉතුරු 40% (නොදැකපු) කොටසේ test කරනවා. Research profile නැති symbols වලට ප්‍රතිඵලය save වෙනවා.
 - Backtests වල trading cost (spread + commission) අඩු කරලා තියෙන්නේ: gold $0.60, EURUSD 1.5 pips, crypto 0.2%.
+
+## 📋 අද Signals
+උඩ තියෙන **📋 අද Signals** button එක → Verified/Weak markets ඔක්කොම (හැම timeframe එකකම) check කරලා, දැනට valid BUY/SELL signals එක තැනකින් පෙන්නනවා (විනාඩි 5කට සැරයක් auto update). Card එක click කළාම ඒ chart එකට යනවා.
+
+## 🤖 AI Tracker
+හැම AI analysis එකක්ම පස්සේ මිල ගිය විදිහට check කරනවා (entry ආවද, SL/TP වැදුනද). AI signals, strategy signals, සහ "AI එකඟ වුණ (MATCH)" / "AI විරුද්ධ (CONFLICT)" strategy signals වල ප්‍රතිඵල වෙන වෙනම පෙන්නනවා. තීරණයකට ඉවර වුණු signals 30–50ක් ඕන.
+
+## 💵 Backtest screen
+🟢/🟡/🔴 තීරණය · "මගේ සල්ලි වලට මොකද වෙන්නේ" calculator (පටන් ගන්න මුදල + risk %) · පියවරෙන් පියවර ගණන · $ balance chart · දිනුම්/පැරදුම් කොටු + එක දිගට පැරදුණු උපරිමය · chart එකේ trade ලකුණු · trades list · advanced විස්තර.
 
 ## 🤖 AI Analysis + News check
 Signal card එකේ button එක click කරාම (ANTHROPIC_API_KEY ඕන):

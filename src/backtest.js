@@ -24,7 +24,7 @@ function backtest(candles, symbol, tf) {
   return {
     profile: { status: prof.status, strategy: prof.strategy, params: prof.params, exits: prof.exits, research: prof.research, optimizer: prof.optimizer, source: prof.source },
     stats: { ...st, from: candles[250]?.time, to: candles[candles.length - 1]?.time, cost: INSTRUMENTS[symbol].costPct ? `${INSTRUMENTS[symbol].costPct * 100}%` : INSTRUMENTS[symbol].cost },
-    trades: trades.slice(-100).map(({ i, ...t }) => ({ ...t, r: +t.r.toFixed(2) })),
+    trades: trades.map(({ i, ...t }) => ({ ...t, r: +t.r.toFixed(3), gross: +t.gross.toFixed(3), cost: +t.cost.toFixed(3) })),
     curve: st.curve,
   };
 }

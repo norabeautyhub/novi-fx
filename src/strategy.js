@@ -156,7 +156,7 @@ function simulate(F, sig, sl, ex = {}, costAt = () => 0, start = 250) {
       if (maxBars != null && j - i >= maxBars) { out = (d * (F.c[j] - e)) / risk; reason = 'TIME'; break; }
     }
     if (out == null) break; // still open at the end of data
-    trades.push({ i, side: d === 1 ? 'BUY' : 'SELL', entryTime: F.time[i + 1], exitTime: F.time[j], entry: e, stop: e - d * risk, target: tp, r: out - costR, reason });
+    trades.push({ i, side: d === 1 ? 'BUY' : 'SELL', entryTime: F.time[i + 1], exitTime: F.time[j], entry: e, stop: e - d * risk, target: tp, r: out - costR, gross: out, cost: costR, reason });
     i = j;
   }
   return trades;
