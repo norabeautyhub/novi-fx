@@ -135,4 +135,41 @@ async function getPrice(symbol) {
   return c[c.length - 1].close;
 }
 
-module.exports = { getCandles, getPrice, demoLast, TF_SEC };
+// Candles for a date range (seconds, UTC). Used by the Sessions tab.
+async function getCandlesRange(symbol, tf, fromSec, toSec) {
+  const inst = INSTRUMENTS[symbol];
+  if (!inst) throw new Error(`Unknown symbol ${symbol}`);
+  const key = `range|${symbol}|${tf}|${fromSec}|${toSec}`;
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.data;
+  let data;
+  if (process.env.DATA_MODE === 'demo') {
+    const step = TF_SEC[tf];
+    const all = demoCandles(symbol, tf, Math.min(20000, Math.ceil((Date.now() / 1000 - fromSec) / step) + 10));
+    data = all.filter((c) => c.time >= fromSec && c.time < toSec);
+  } else if (inst.provider === 'binance') {
+    data = [];
+    let start = fromSec * 1000;
+    while (start < toSec * 1000 && data.length < 20000) {
+      const page = await getJSON(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${BINANCE_TF[tf]}&startTime=${start}&endTime=${toSec * 1000 - 1}&limit=1000`);
+      if (!page.length) break;
+      data = data.concat(page.map((r) => ({ time: Math.floor(r[0] / 1000), open: +r[1], high: +r[2], low: +r[3], close: +r[4], volume: +r[5] })));
+      start = page[page.length - 1][0] + 1;
+      if (page.length < 1000) break;
+    }
+  } else {
+    const key2 = process.env.TWELVEDATA_API_KEY;
+    if (!key2) throw new Error('TWELVEDATA_API_KEY .env එකේ නැහැ');
+    await tdWait();
+    const fmt = (t) => new Date(t * 1000).toISOString().slice(0, 19).replace('T', ' ');
+    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(inst.tdSymbol)}&interval=${TD_TF[tf]}&start_date=${encodeURIComponent(fmt(fromSec))}&end_date=${encodeURIComponent(fmt(toSec))}&outputsize=5000&timezone=UTC&apikey=${key2}`;
+    const j = await getJSON(url);
+    if (j.status === 'error') throw new Error(`Twelve Data: ${j.message}`);
+    data = (j.values || []).map((v) => ({ time: Math.floor(Date.parse(v.datetime.replace(' ', 'T') + 'Z') / 1000), open: +v.open, high: +v.high, low: +v.low, close: +v.close, volume: +(v.volume || 0) }))
+      .filter((c) => c.high !== c.low).reverse();
+  }
+  cache.set(key, { at: Date.now(), data });
+  return data;
+}
+
+module.exports = { getCandles, getPrice, demoLast, TF_SEC, getCandlesRange };

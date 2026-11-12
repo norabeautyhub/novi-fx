@@ -247,6 +247,43 @@ app.get('/api/grade', wrap(async (req, res) => {
   res.json(await gradeFor(symbol, tf, sig, mode));
 }));
 
+// Sessions tab: session candles for a date range + strategy trades in that range
+const { getCandlesRange } = require('./src/data');
+const { sessionCandles, SESSIONS } = require('./src/sessions');
+const Strat = require('./src/strategy');
+app.get('/api/sessions', wrap(async (req, res) => {
+  const symbol = sym(req), tf = tfOf(req), mode = modeOf(req);
+  const session = SESSIONS[req.query.session] ? req.query.session : 'london';
+  const from = Math.floor(Date.parse(String(req.query.from) + 'T00:00:00Z') / 1000);
+  const to = Math.floor(Date.parse(String(req.query.to) + 'T00:00:00Z') / 1000) + 86400;
+  if (!(from > 0) || !(to > from)) throw new Error('දින පරාසය වැරදියි');
+  const days = (to - from) / 86400;
+  if (days > 180) throw new Error('උපරිම දවස් 180යි');
+  // session candles: 15m for short ranges (precise high/low time), 1h for long ones
+  const stf = days <= 31 ? '15m' : '1h';
+  const sc = await getCandlesRange(symbol, stf, from - 86400, to + 86400);
+  const { sessions, name } = sessionCandles(sc, symbol, session);
+  const inRange = sessions.filter((d) => d.start >= from - 43200 && d.start < to);
+
+  // strategy trades in the range (same engine as backtest; 300 candles warm-up before the range)
+  let trades = [], tradeErr = null, prof = getProfile(symbol, tf);
+  try {
+    if (['disabled', 'noedge'].includes(prof.status)) tradeErr = prof.note || 'මේ market/timeframe එකේ strategy එක off';
+    else {
+      const tc = await getCandlesRange(symbol, tf, from - 300 * TF_SEC[tf], Math.min(to, Math.floor(Date.now() / 1000) + TF_SEC[tf]));
+      if (tc.length < 260) tradeErr = 'Candles මදි';
+      else {
+        const F = Strat.features(tc);
+        const { sig, sl } = Strat.STRATEGIES[prof.strategy](F, prof.params);
+        const inst = INSTRUMENTS[symbol];
+        const all = Strat.simulateMode(F, sig, sl, prof.exits, mode, () => (inst.costPct ? inst.costPct * F.c[F.c.length - 1] : inst.cost || 0));
+        trades = all.filter((t) => t.entryTime >= from && t.entryTime < to).map(({ i, ...t }) => ({ ...t, r: +t.r.toFixed(3), signalTime: tc[i].time + TF_SEC[tf] }));
+      }
+    }
+  } catch (e) { tradeErr = e.message; }
+  res.json({ symbol, tf, mode, session, sessionName: name, from, to, candleTf: stf, sessions: inRange, trades, tradeErr, strategy: prof.strategy, profile: prof.status });
+}));
+
 // AI Signal Tracker
 const tracker = require('./src/tracker');
 app.get('/api/ai-tracker', wrap(async (req, res) => {

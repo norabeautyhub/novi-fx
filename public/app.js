@@ -604,6 +604,86 @@ async function loadTracker() {
   } catch (e) { box.innerHTML = `<span class="neg">${e.message}</span>`; }
 }
 
+/* ---------- Sessions tab ---------- */
+const slT = (t) => new Date(t * 1000).toLocaleString('en-GB', { timeZone: 'Asia/Colombo', hour: '2-digit', minute: '2-digit' });
+const slD = (t) => new Date(t * 1000).toLocaleString('en-GB', { timeZone: 'Asia/Colombo', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+const isoDay = (d) => d.toISOString().slice(0, 10);
+function ssPreset(k) {
+  const now = new Date(); const dow = (now.getUTCDay() + 6) % 7; // Mon=0
+  const mon = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - dow));
+  let f = mon, t = now;
+  if (k === 'last') { f = new Date(mon.getTime() - 7 * 86400e3); t = new Date(mon.getTime() - 86400e3); }
+  if (k === '4w') f = new Date(mon.getTime() - 21 * 86400e3);
+  if (k === '3m') f = new Date(now.getTime() - 90 * 86400e3);
+  $('ssFrom').value = isoDay(f); $('ssTo').value = isoDay(t);
+}
+let ssChart = null;
+async function loadSessions() {
+  const out = $('ssOut');
+  out.innerHTML = '<span class="muted">Candles ගන්නවා…</span>';
+  try {
+    const r = await api(`/api/sessions?symbol=${S.symbol}&tf=${S.tf}&mode=${S.mode}&session=${$('ssSess').value}&from=${$('ssFrom').value}&to=${$('ssTo').value}`);
+    S.ss = r; renderSessions();
+  } catch (e) { out.innerHTML = `<span class="neg">${esc(e.message)}</span>`; }
+}
+function renderSessions() {
+  const r = S.ss; if (!r) return;
+  const sym = r.symbol, ss = r.sessions;
+  const start = Math.max(1, +(store('novi-fx-bt-start') || 1000)), riskPct = Math.max(0.1, +(store('novi-fx-bt-risk') || 1)), risk$ = (start * riskPct) / 100;
+  if (!ss.length) { $('ssOut').innerHTML = '<span class="muted">මේ දින පරාසයේ session data නැහැ (weekend / market වහලා?)</span>'; return; }
+  const big = ss.reduce((a, x) => (x.range > a.range ? x : a)), small = ss.reduce((a, x) => (x.range < a.range ? x : a));
+  const avg = ss.reduce((a, x) => a + x.range, 0) / ss.length;
+  const hourCount = (key) => { const m = {}; for (const x of ss) { const hh = +slT(x[key]).slice(0, 2); const h = `${String(hh).padStart(2, '0')}:00–${String((hh + 1) % 24).padStart(2, '0')}:00`; m[h] = (m[h] || 0) + 1; } return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([h, n]) => `${h} (දවස් ${n})`).join(', '); };
+  const tradesByDay = {};
+  for (const t of r.trades) { const d = new Date(t.entryTime * 1000).toISOString().slice(0, 10); (tradesByDay[d] ||= []).push(t); }
+  const totR = r.trades.reduce((a, t) => a + t.r, 0);
+  const wins = r.trades.filter((t) => t.r > 0.1).length, losses = r.trades.filter((t) => t.r < -0.1).length;
+  $('ssOut').innerHTML = `
+    <div class="bt-h">${sym} · ${esc(r.sessionName)} · ${$('ssFrom').value} → ${$('ssTo').value} <span class="muted small">(sessions ${ss.length}, ${r.candleTf} candles)</span></div>
+    <div class="stats">
+      <div>🏆 වැඩිම චලනය<b>${big.date.slice(5)} ${big.weekday}</b><span class="small">${fmt(big.range, sym)} (${big.pips} pips)</span></div>
+      <div>😴 අඩුම චලනය<b>${small.date.slice(5)} ${small.weekday}</b><span class="small">${fmt(small.range, sym)}</span></div>
+      <div>සාමාන්‍ය චලනය<b>${fmt(avg, sym)}</b><span class="small">session එකකට</span></div>
+      <div>UP / DOWN දවස්<b><span class="pos">${ss.filter((x) => x.dir === 'UP').length}</span> / <span class="neg">${ss.filter((x) => x.dir === 'DOWN').length}</span></b></div>
+    </div>
+    <div class="small">⏰ Session High එක වැඩියෙන්ම ආවේ (ලංකා වේලාව): <b>${hourCount('highTime')}</b> · Low එක: <b>${hourCount('lowTime')}</b></div>
+    <div id="ssChart" style="height:230px;margin:8px 0"></div>
+    <div class="small muted">හැම candle එකක්ම = එක දවසක ${esc(r.sessionName)} session එක. ▲▼ = ඒ දවස්වල strategy (${STRAT_NAME[r.strategy] || r.strategy}, ${S.tf}, ${MODE_NAME[r.mode]}) ගත්ත trades.</div>
+
+    <div class="bt-sec"><div class="bt-h">💵 ඒ කාලයේ strategy trades ගත්තා නම් <span class="muted small">(trade එකකට ${usd(risk$)} risk — Backtest tab එකේ මුදල/risk % වෙනස් කරන්න පුළුවන්)</span></div>
+      ${r.tradeErr ? `<div class="small neg">${esc(r.tradeErr)}</div>` : r.trades.length ? `
+      <div class="verdict v-${totR > 0 ? '🟢' : '🔴'}"><div class="v-light">${totR > 0 ? '🟢' : '🔴'}</div><div><div class="v-title">${money0(totR * risk$)}</div>
+        <div>Trades ${r.trades.length} · ✅ ${wins} · ⚪ ${r.trades.length - wins - losses} · ❌ ${losses}</div></div></div>
+      <table><tr><th>Signal (ලංකා)</th><th></th><th>Entry</th><th>SL</th><th>Target</th><th>ඉවර වුණේ</th><th>ප්‍රතිඵලය</th></tr>
+      ${r.trades.map((t) => `<tr><td class="small">${slD(t.signalTime)}</td><td><span class="pill ${t.side}">${t.side}</span></td><td class="mono">${fmt(t.entry, sym)}</td><td class="mono">${fmt(t.stop, sym)}</td><td class="mono">${fmt(t.target, sym)}</td>
+        <td class="small">${slD(t.exitTime)} <span class="muted">${t.reason === 'TP' ? 'Target' : t.reason === 'SL' ? 'SL' : t.reason}</span></td><td class="${cls(t.r)}"><b>${money0(t.r * risk$)}</b></td></tr>`).join('')}</table>`
+      : '<div class="small muted">මේ කාලයේ strategy එකෙන් ඉවර වුණු trades නැහැ (signals අඩුවෙන් එන්නේ).</div>'}</div>
+
+    <details class="bt-sec" open><summary><b>📋 දවසින් දවස</b></summary>
+      <table><tr><th>දවස</th><th>Open</th><th>High (ලංකා)</th><th>Low (ලංකා)</th><th>Close</th><th>චලනය</th><th>ලොකු චලනය</th><th title="Low එකේ ගත්තා/High එකේ විකුණුවා නම් (පස්සේ බලලා විතරයි දන්නේ)">උපරිම ඉඩ (0.10 lot)</th><th>Strategy</th></tr>
+      ${ss.slice().reverse().map((x) => `<tr${x === big ? ' style="background:rgba(251,191,36,.08)"' : ''}><td>${x.date.slice(5)} ${x.weekday}</td><td class="mono">${fmt(x.open, sym)}</td>
+        <td class="mono">${fmt(x.high, sym)} <span class="muted">${slT(x.highTime)}</span></td><td class="mono">${fmt(x.low, sym)} <span class="muted">${slT(x.lowTime)}</span></td>
+        <td class="mono ${x.dir === 'UP' ? 'pos' : 'neg'}">${fmt(x.close, sym)}</td><td>${fmt(x.range, sym)} <span class="muted small">${x.pips}p</span></td>
+        <td>${x.bigMove === 'UP' ? '<span class="pos">▲ Low → High</span>' : '<span class="neg">▼ High → Low</span>'}</td><td class="muted">$${x.hindsightUSD010}</td>
+        <td class="small">${(tradesByDay[x.date] || []).map((t) => `<span class="pill ${t.side}">${t.side}</span> <b class="${cls(t.r)}">${money0(t.r * risk$)}</b>`).join('<br>') || '—'}</td></tr>`).join('')}</table>
+      <div class="small muted">"උපරිම ඉඩ" = session එකේ Low එකේ ගත්තා/High එකේ විකුණුවා නම් ලැබෙන්න තිබුණු උපරිමය — ඒක පස්සේ බලලා විතරයි දන්නේ, ඇත්තටම කාටවත් ගන්න බැහැ.</div></details>`;
+  // session candle chart + trade markers
+  if (ssChart) { try { ssChart.remove(); } catch {} ssChart = null; }
+  ssChart = LightweightCharts.createChart($('ssChart'), { ...chartOpts, autoSize: true, timeScale: { borderColor: '#2a3441', timeVisible: false } });
+  const cs = ssChart.addCandlestickSeries({ upColor: '#22c55e', downColor: '#ef4444', borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444' });
+  const d = digits(sym); cs.applyOptions({ priceFormat: { type: 'price', precision: d, minMove: 1 / 10 ** d } });
+  cs.setData(ss.map((x) => ({ time: x.start, open: x.open, high: x.high, low: x.low, close: x.close })));
+  const mk = [];
+  for (const t of r.trades) {
+    let k = ss.length - 1; while (k > 0 && ss[k].start > t.entryTime) k--;
+    mk.push({ time: ss[k].start, position: t.side === 'BUY' ? 'belowBar' : 'aboveBar', shape: t.side === 'BUY' ? 'arrowUp' : 'arrowDown', color: t.r > 0 ? '#22c55e' : '#ef4444', text: money0(t.r * risk$) });
+  }
+  mk.sort((a, b) => a.time - b.time); cs.setMarkers(mk);
+  ssChart.timeScale().fitContent();
+}
+$('ssGo').onclick = loadSessions;
+document.querySelectorAll('[data-ss]').forEach((b) => (b.onclick = () => { ssPreset(b.dataset.ss); loadSessions(); }));
+
 /* ---------- today's verified signals ---------- */
 const ago = (t) => { const m = Math.round((Date.now() / 1000 - t) / 60); return m < 60 ? `විනාඩි ${m}කට කලින්` : m < 1440 ? `පැය ${Math.round(m / 60)}කට කලින්` : `දවස් ${Math.round(m / 1440)}කට කලින්`; };
 async function loadToday(force) {
@@ -911,7 +991,8 @@ $('btnSell').onclick = () => placeOrder('SELL');
 /* ---------- tabs / nav ---------- */
 function switchTab(name) {
   if (name === 'tracker') loadTracker();
-  if ((name === 'backtest' || name === 'scanner' || name === 'tracker') && document.querySelector('.tab-body').offsetHeight < 330) setPanelH(380);
+  if (name === 'sessions' && !$('ssFrom').value) ssPreset('week');
+  if ((name === 'backtest' || name === 'scanner' || name === 'tracker' || name === 'sessions') && document.querySelector('.tab-body').offsetHeight < 330) setPanelH(380);
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.id === 'tab-' + name));
 }

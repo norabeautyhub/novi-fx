@@ -38,6 +38,7 @@
         <button data-tab="backtest">Backtest</button>
         <button data-tab="scanner">Scanner</button>
         <button data-tab="tracker">🤖 AI Tracker</button>
+        <button data-tab="sessions">📅 Sessions</button>
         <button id="btnPanelSize" class="panel-size" title="Panel එක ලොකු / පොඩි කරන්න">⤢</button>
       </div>
       <div class="tab-body">
@@ -50,6 +51,16 @@
             <span class="muted small">දැනට තියෙන symbol + timeframe · candles 5000</span>
           </div>
           <div id="btOut"></div>
+        </div>
+        <div id="tab-sessions" class="tab">
+          <div class="row small">
+            <label>From <input id="ssFrom" type="date" style="width:140px"></label>
+            <label>To <input id="ssTo" type="date" style="width:140px"></label>
+            <label>Session <select id="ssSess"><option value="london">🇬🇧 London</option><option value="ny">🇺🇸 New York</option><option value="asian">🌏 Asian</option><option value="day">මුළු දවස</option></select></label>
+            <button id="ssGo">පෙන්නන්න</button>
+            <button class="sm ghost" data-ss="week">මේ සතිය</button><button class="sm ghost" data-ss="last">පහුගිය සතිය</button><button class="sm ghost" data-ss="4w">සති 4</button><button class="sm ghost" data-ss="3m">මාස 3</button>
+          </div>
+          <div id="ssOut" class="muted small">දින පරාසයක් තෝරලා "පෙන්නන්න" ඔබන්න.</div>
         </div>
         <div id="tab-tracker" class="tab"><div class="muted small">Loading…</div></div>
         <div id="tab-scanner" class="tab">

@@ -59,6 +59,14 @@ Research (`research/wr.py`, Gold 2014–2018 / EURUSD 2017–2021, costs එක�
 Gold 4h walk-forward (නොදැකපු 2016–2018): High Win Rate 61% win +20.8R vs Normal 33% +18.4R.
 Signal card එකේ පියවරෙන් පියවර උපදෙස්, chart lines, 1R alert (browser notification), Demo trading එකේ limit order + auto 50% close + breakeven, Backtest එකේ "⚖️ Modes 3ම compare".
 
+## 📅 Sessions tab
+දින පරාසයක් (මේ සතිය / පහුගිය සතිය / සති 4 / මාස 3 / ඕනම දින) + session එකක් (London / New York / Asian / මුළු දවස) තෝරලා:
+- හැම දවසකම session එක එක candle එකක් විදිහට chart එකක (▲▼ = ඒ දවස්වල strategy trades + $ ප්‍රතිඵලය)
+- වැඩිම / අඩුම චලනය වුණ දවස, සාමාන්‍ය චලනය, UP/DOWN දවස්, High/Low වැඩියෙන්ම ආපු ලංකා වේලාව
+- දවසින් දවස table: Open, High (වෙලාව), Low (වෙලාව), Close, චලනය, Low→High / High→Low, "උපරිම ඉඩ" (hindsight, 0.10 lot)
+- ඒ කාලයේ strategy trades ගත්තා නම් ($ risk එකට) — signal වෙලාව, entry, SL, target, ඉවර වුණ වෙලාව, $ ප්‍රතිඵලය, මුළු එකතුව
+(15m candles ≤31 දවස්, ඊට වැඩි නම් 1h; උපරිම දවස් 180)
+
 ## 🔬 Deep Analysis — අලුත් කොටස් (2026-11-10)
 - **⚖️ ඔක්කොම එකට:** Strategy / දැන්ම trade / Indicators / ML / AI — දිශාව + success %, BUY vs SELL එකඟතාවය
 - **📐 Strategy signal — mode 3ම:** signal එක (හෝ WAIT නම් signal එක එන මිල + කොන්දේසි), ✅ success / ⚪ $0 / ❌ loss % (backtest), ⚠️ risk (SL දුර, pips, $1,000ට 1% lots, R:R), 💰/🎯 badges
