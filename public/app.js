@@ -26,10 +26,16 @@ const cls = (v) => (v > 0 ? 'pos' : v < 0 ? 'neg' : '');
 const dt = (t) => new Date(t).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 /* ---------- charts ---------- */
+// All chart times in Sri Lanka time (Asia/Colombo, UTC+5:30) instead of UTC
+const SLTZ = 'Asia/Colombo';
+const slFmt = (t, o) => new Date((typeof t === 'number' ? t : Date.UTC(t.year, t.month - 1, t.day) / 1000) * 1000).toLocaleString('en-GB', { timeZone: SLTZ, ...o });
+const tickSL = (t, type) => (type === 0 ? slFmt(t, { year: 'numeric' }) : type === 1 ? slFmt(t, { month: 'short' }) : type === 2 ? slFmt(t, { day: 'numeric', month: 'short' }) : slFmt(t, { hour: '2-digit', minute: '2-digit', hour12: false }));
+const crossSL = (t) => (S.tf === '1d' ? slFmt(t, { weekday: 'short', day: '2-digit', month: 'short', year: '2-digit' }) : slFmt(t, { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false }));
 const chartOpts = {
   layout: { background: { color: '#0d1117' }, textColor: '#8b98a8' },
   grid: { vertLines: { color: '#161d26' }, horzLines: { color: '#161d26' } },
-  timeScale: { timeVisible: true, borderColor: '#2a3441' },
+  timeScale: { timeVisible: true, borderColor: '#2a3441', tickMarkFormatter: tickSL },
+  localization: { timeFormatter: crossSL },
   rightPriceScale: { borderColor: '#2a3441' },
   crosshair: { mode: 0 },
 };
@@ -669,7 +675,8 @@ function renderSessions() {
       <div class="small muted">"උපරිම ඉඩ" = session එකේ Low එකේ ගත්තා/High එකේ විකුණුවා නම් ලැබෙන්න තිබුණු උපරිමය — ඒක පස්සේ බලලා විතරයි දන්නේ, ඇත්තටම කාටවත් ගන්න බැහැ.</div></details>`;
   // session candle chart + trade markers
   if (ssChart) { try { ssChart.remove(); } catch {} ssChart = null; }
-  ssChart = LightweightCharts.createChart($('ssChart'), { ...chartOpts, autoSize: true, timeScale: { borderColor: '#2a3441', timeVisible: false } });
+  ssChart = LightweightCharts.createChart($('ssChart'), { ...chartOpts, autoSize: true, timeScale: { borderColor: '#2a3441', timeVisible: false, tickMarkFormatter: (t) => slFmt(t, { day: 'numeric', month: 'short' }) },
+    localization: { timeFormatter: (t) => slFmt(t, { weekday: 'short', day: '2-digit', month: 'short' }) + ' session' } });
   const cs = ssChart.addCandlestickSeries({ upColor: '#22c55e', downColor: '#ef4444', borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444' });
   const d = digits(sym); cs.applyOptions({ priceFormat: { type: 'price', precision: d, minMove: 1 / 10 ** d } });
   cs.setData(ss.map((x) => ({ time: x.start, open: x.open, high: x.high, low: x.low, close: x.close })));
@@ -832,7 +839,7 @@ function renderBacktest() {
 
   // balance curve in $
   if (btChart) { btChart.remove(); btChart = null; }
-  btChart = LightweightCharts.createChart($('btCurve'), { ...chartOpts, autoSize: true });
+  btChart = LightweightCharts.createChart($('btCurve'), { ...chartOpts, autoSize: true, localization: { timeFormatter: (t) => slFmt(t, { day: '2-digit', month: 'short', year: 'numeric' }) } });
   btLine = btChart.addAreaSeries({ lineColor: '#3b82f6', topColor: 'rgba(59,130,246,.3)', bottomColor: 'rgba(59,130,246,0)', lineWidth: 2 });
   let bal = start; const pts = [{ time: s.from, value: start }]; const seen = new Set([s.from]);
   for (const t of tr) { bal += t.r * risk$; if (!seen.has(t.exitTime)) { seen.add(t.exitTime); pts.push({ time: t.exitTime, value: +bal.toFixed(2) }); } else pts[pts.length - 1].value = +bal.toFixed(2); }
