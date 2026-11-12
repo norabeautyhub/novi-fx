@@ -154,6 +154,7 @@ function setupPlan(candles, symbol, tf, mode = 'normal', digits) {
   if (prof.strategy === 'breakout') {
     const hi = Math.max(...F.h.slice(L - p.n + 1, L + 1)), lo = Math.min(...F.l.slice(L - p.n + 1, L + 1));
     level = d === 1 ? hi : lo;
+    var box = { high: hi, low: lo, n: p.n };
     text = `${tf} candle එකක් ${f(level)} ට ${d === 1 ? 'උඩින්' : 'යටින්'} close වුණොත් → ${act}`;
     conds.push({ ok: null, text: `මිල දැන් ${f(price)} — break එකට තව ${f(Math.abs(level - price))}` });
     if (p.hours) conds.push({ ok: null, text: 'London/New York session (ලංකා වේලාවෙන් 12:30–22:30) ඇතුළේ close වෙන්න ඕන' });
@@ -161,6 +162,7 @@ function setupPlan(candles, symbol, tf, mode = 'normal', digits) {
     const stack = d === 1 ? F.ema20[L] > F.ema50[L] && F.ema50[L] > F.ema200[L] : F.ema20[L] < F.ema50[L] && F.ema50[L] < F.ema200[L];
     conds.push({ ok: stack, text: `EMA 20/50/200 ${d === 1 ? 'UP' : 'DOWN'} පිළිවෙළට${stack ? '' : ' නැහැ'}` });
     level = F.ema20[L] + d * 0.1 * a;
+    var ema20 = F.ema20[L];
     text = `මිල EMA20 (${f(F.ema20[L])}) ළඟට pullback වෙලා, RSI 50 ${d === 1 ? 'උඩට' : 'යටට'} cross වෙලා candle එක EMA20 ට ${d === 1 ? 'උඩින්' : 'යටින්'} close වුණොත් → ${act}`;
     conds.push({ ok: null, text: `RSI දැන් ${F.rsi[L].toFixed(0)}` });
   }
@@ -172,6 +174,6 @@ function setupPlan(candles, symbol, tf, mode = 'normal', digits) {
     entry = level - d * 0.5 * a; sl = entry - d * rk; tp = entry + d * tpR * rk;
     extra = { partialAt: entry + d * rk, beTo: entry + d * 0.05 * rk };
   } else if (mode === 'breakeven') extra = { beAt: level + d * risk, beTo: level + d * 0.05 * risk };
-  return { dir: act, level, text, conds, entry, stopLoss: sl, target: tp, ...extra, approx: true };
+  return { dir: act, level, text, conds, entry, stopLoss: sl, target: tp, ...extra, approx: true, strategy: prof.strategy, box: typeof box !== 'undefined' ? box : null, ema20: typeof ema20 !== 'undefined' ? ema20 : null, price };
 }
 module.exports.setupPlan = setupPlan;

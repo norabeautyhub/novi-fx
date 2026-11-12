@@ -100,6 +100,7 @@ app.get('/api/signal', wrap(async (req, res) => {
   const symbol = sym(req), tf = tfOf(req);
   const candles = await getCandles(symbol, tf, N);
   const sig = liveSignal(candles, symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits, modeOf(req));
+  if (sig.action === 'WAIT') { try { sig.setup = setupPlan(candles, symbol, tf, modeOf(req), INSTRUMENTS[symbol].digits); } catch {} }
   sig.livePrice = await getPrice(symbol);
   sig.status = signalStatus(sig, sig.livePrice, Date.now() / 1000);
   sig.tfSec = TF_SEC[tf];

@@ -166,6 +166,35 @@ const MODE_INFO = {
   breakeven: 'ලාභය 1R වුණාම SL එක entry එකට — පාඩු trades අඩුයි, ලාභය ≈ එහෙමමයි',
   highwin: 'Limit entry + 1R දී 50% close + SL → entry — win rate 60–69%, ලාභය ~35–45% අඩුයි',
 };
+/* ---------- market session / activity ---------- */
+function zoneHour(tz) {
+  const p = new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', weekday: 'short', hour12: false }).formatToParts(new Date());
+  const g = (t) => p.find((x) => x.type === t)?.value;
+  return { h: +g('hour') % 24, m: +g('minute'), wd: g('weekday') };
+}
+function slTimeOfLondon(hLondon) {
+  // London local hour today → Sri Lanka clock time
+  const now = new Date(), L = zoneHour('Europe/London');
+  const diffMin = (hLondon * 60) - (L.h * 60 + L.m);
+  return new Date(now.getTime() + diffMin * 60000).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+function renderSession() {
+  const box = $('sessBox'); if (!box) return;
+  const L = zoneHour('Europe/London');
+  const crypto = S.cfg?.instruments[S.symbol]?.type === 'crypto';
+  const utcDay = new Date().getUTCDay(), utcH = new Date().getUTCHours();
+  const closed = !crypto && (utcDay === 6 || (utcDay === 0 && utcH < 22) || (utcDay === 5 && utcH >= 21));
+  if (closed) { box.innerHTML = '<span class="sess q">⛔ Market එක වහලා (weekend)</span>'; return; }
+  const h = L.h + L.m / 60;
+  let cls2, label, next;
+  if (h >= 13 && h < 17) { cls2 = 'hot'; label = '🔥 London + New York — වැඩියෙන්ම චලනය වෙන වෙලාව'; next = `ඉවර වෙන්නේ ${slTimeOfLondon(17)}`; }
+  else if (h >= 8 && h < 13) { cls2 = 'act'; label = '🇬🇧 London session — සක්‍රීයයි'; next = `🔥 NY overlap ${slTimeOfLondon(13)} ට`; }
+  else if (h >= 17 && h < 21) { cls2 = 'act'; label = '🇺🇸 New York — මධ්‍යම'; next = `ඉවර වෙන්නේ ${slTimeOfLondon(21)}`; }
+  else if (h >= 7 && h < 8) { cls2 = 'act'; label = '🌅 London open එනවා'; next = `London ${slTimeOfLondon(8)} ට`; }
+  else { cls2 = 'q'; label = '😴 Asian / quiet session — මන්දගාමීයි'; next = `London ${slTimeOfLondon(8)} ට · 🔥 overlap ${slTimeOfLondon(13)} ට`; }
+  box.innerHTML = `<span class="sess ${cls2}">${label}</span> <span class="small muted">${next} · US news සාමාන්‍යයෙන් ${slTimeOfLondon(13.5)}</span>`;
+}
+
 function renderModeBar() {
   $('modeBar').innerHTML = Object.keys(MODE_NAME).map((m) => `<button class="${m === S.mode ? 'active' : ''}" data-mode="${m}" title="${MODE_INFO[m]}">${MODE_NAME[m]}</button>`).join('')
     + `<div class="small muted" style="width:100%">${MODE_INFO[S.mode]}</div>`;
@@ -224,8 +253,16 @@ function profileLine(p) {
 function drawSignalLines(sig) {
   S.priceLines.forEach((l) => candleS.removePriceLine(l));
   S.priceLines = [];
+  const add = (price, color, title, width = 1) => S.priceLines.push(candleS.createPriceLine({ price, color, title, lineWidth: width, lineStyle: 2, axisLabelVisible: true }));
+  if (sig && sig.action === 'WAIT' && sig.setup && !sig.setup.off) {
+    const u = sig.setup;
+    if (u.box) {
+      add(u.box.high, u.dir === 'BUY' ? '#22c55e' : 'rgba(139,152,168,.6)', `${u.box.n} High${u.dir === 'BUY' ? ' → BUY' : ''}`, u.dir === 'BUY' ? 2 : 1);
+      add(u.box.low, u.dir === 'SELL' ? '#ef4444' : 'rgba(139,152,168,.6)', `${u.box.n} Low${u.dir === 'SELL' ? ' → SELL' : ''}`, u.dir === 'SELL' ? 2 : 1);
+    } else if (u.ema20 && u.dir) add(u.ema20, '#f59e0b', `EMA20 pullback → ${u.dir}`, 2);
+    return;
+  }
   if (!sig || !['BUY', 'SELL'].includes(sig.action)) return;
-  const add = (price, color, title) => S.priceLines.push(candleS.createPriceLine({ price, color, title, lineWidth: 1, lineStyle: 2, axisLabelVisible: true }));
   if (sig.mode !== 'highwin') { add(sig.zone[0], 'rgba(59,130,246,.5)', 'Zone'); add(sig.zone[1], 'rgba(59,130,246,.5)', 'Zone'); }
   add(sig.entry, '#3b82f6', sig.mode === 'highwin' ? 'Limit' : 'Entry');
   add(sig.stopLoss, '#ef4444', 'SL');
@@ -258,7 +295,11 @@ async function loadSignal() {
       <span>Target (${sig.riskReward}R)</span><span class="pos">${fmt(sig.tp2)}</span>
     </div>` : '';
   const head = sig.action === 'OFF' ? 'OFF' : sig.action;
-  const sub = sig.action === 'WAIT' ? '<div class="small muted">Setup එක තාම සම්පූර්ණ නැහැ — පහළ checklist එක බලන්න</div>'
+  const u = sig.setup;
+  const trig = sig.action === 'WAIT' && u && !u.off && u.dir
+    ? `<div class="trigger">📍 <b>${u.dir}</b> setup එකකට බලාගෙන: ${esc(u.text)}${u.box ? ` <span class="muted">(දැන් ${fmt(S.prices[S.symbol] ?? u.price)} · ${u.dir === 'BUY' ? 'High' : 'Low'} එකට තව ${fmt(Math.abs(u.level - (S.prices[S.symbol] ?? u.price)))})</span>` : ''}<br><span class="small muted">Chart එකේ ඉරි වලින් පෙන්නලා තියෙනවා</span></div>`
+    : sig.action === 'WAIT' && u?.text ? `<div class="small muted">${esc(u.text)}</div>` : '';
+  const sub = sig.action === 'WAIT' ? '<div class="small muted">Setup එක තාම සම්පූර්ණ නැහැ — පහළ checklist එක බලන්න</div>' + trig
     : sig.action === 'OFF' ? '<div class="small muted">මේ symbol/timeframe එකේ signals දෙන්නේ නැහැ</div>' : '';
   $('sigBody').innerHTML = `
     ${profileLine(sig.profile)}
@@ -913,6 +954,7 @@ function renderTfBar() {
 }
 
 function selectSymbol(s) {
+  setTimeout(renderSession, 0);
   S.symbol = s; store('novi-fx-sym', s); S.orderZone = null; S.dayOpen = null;
   $('symName').textContent = s; $('aiOut').textContent = ''; $('deepOut').textContent = ''; $('oSL').value = ''; $('oTP').value = ''; $('calcOut').textContent = '';
   applyPrecision(); renderWatchlist(); refreshAll(true);
@@ -936,6 +978,7 @@ function loop() {
   loadPaper();
   if (tick % 60 === 0) loadMtf();
   if (tick % 100 === 0) loadToday(false); // ~5 min
+  if (tick % 20 === 0) renderSession();
   for (const s of Object.keys(S.cfg.instruments)) {
     const d = document.querySelector(`[data-dot="${s}"]`);
     if (d) { d.className = 'dot ' + (isLive(s) ? 'on' : ''); d.title = isLive(s) ? 'LIVE' : 'Delayed'; }
@@ -952,6 +995,7 @@ function loop() {
   S.tfSec = TF_SEC[S.tf];
   S.mode = ['normal', 'breakeven', 'highwin'].includes(store('novi-fx-mode')) ? store('novi-fx-mode') : 'normal';
   renderModeBar();
+  renderSession();
   startStream();
   $('symName').textContent = S.symbol;
   const b = [];
