@@ -169,7 +169,11 @@ const deepCandles = (s, t) => getCandles(s, t, t === '1d' ? 600 : N, DEEP_AGE[t]
 app.post('/api/deep', wrap(async (req, res) => {
   const symbol = sym(req), tf = tfOf(req);
   let strategySignal = null;
-  try { strategySignal = liveSignal(await getCandles(symbol, tf, N), symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits, modeOf(req)); } catch {}
+  try {
+    const cs = await getCandles(symbol, tf, N);
+    strategySignal = liveSignal(cs, symbol, tf, TF_SEC[tf], INSTRUMENTS[symbol].digits, modeOf(req));
+    if (strategySignal.action === 'WAIT') { try { strategySignal.setup = setupPlan(cs, symbol, tf, modeOf(req), INSTRUMENTS[symbol].digits); } catch {} }
+  } catch {}
   const out = await deepAnalyze({ symbol, tf, strategySignal, getPrice, getCandles: deepCandles });
   try { out.modes = await compareModes(symbol, tf); } catch (e) { out.modes = { error: e.message }; }
   try { out.now = await nowFor(symbol, tf); } catch (e) { out.now = { error: e.message }; }

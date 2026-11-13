@@ -481,13 +481,38 @@ function allSources(r) {
   const ai = S.ai && S.ai.ok && S.ai.symbol === sym && S.ai.tf === r.tf && Date.now() - Date.parse(S.ai.time) < 2 * 3600e3 ? S.ai : null;
   if (ai) rows.push({ src: '🤖 AI (news + chart)', dir: ['BUY', 'SELL'].includes(ai.ai.action) ? ai.ai.action : null, txt: `${ai.ai.action}${ai.ai.confidence != null ? ` · ${ai.ai.confidence}%` : ''} · news ${ai.news.bias || ''}`, rate: '—', note: dt(Date.parse(ai.time)) });
   else rows.push({ src: '🤖 AI', dir: null, txt: '"AI Analysis" click කරලා නැහැ', rate: '—', note: '' });
-  const buy = rows.filter((x) => x.dir === 'BUY').length, sell = rows.filter((x) => x.dir === 'SELL').length;
+  const ns = r.news?.signal;
+  if (ns) rows.push({ src: '📰 News (keywords)', dir: ['BUY', 'SELL'].includes(ns.action) ? ns.action : null, txt: `${ns.action === 'NEUTRAL' ? 'පැහැදිලි නැහැ' : ns.action} · 📈${ns.bull} 📉${ns.bear}`, rate: '—', note: 'Tracker එකෙන් මනිනවා' });
+  const pt = r.partner?.available ? r.partner.partners.find((x) => !x.error) : null;
+  if (pt) rows.push({ src: `🔗 Partner (${pt.symbol})`, dir: pt.implied, count: false, txt: `${pt.symbol} daily ${pt.trend.d1}${pt.relation < 0 ? ' (අනිත් පැත්තට යන market)' : ''}`, rate: pt.research ? `${pt.research.agree.win}%` : '—', note: 'තොරතුරට විතරයි — ගණන් ගන්නේ නැහැ' });
+  const counted = rows.filter((x) => x.count !== false);
+  const buy = counted.filter((x) => x.dir === 'BUY').length, sell = counted.filter((x) => x.dir === 'SELL').length;
   const verdict = buy && !sell ? `✅ ඔක්කොම (${buy}) BUY පැත්තට` : sell && !buy ? `✅ ඔක්කොම (${sell}) SELL පැත්තට` : buy > sell ? `▲ BUY ${buy} · ▼ SELL ${sell} — වැඩි හරිය BUY` : sell > buy ? `▲ BUY ${buy} · ▼ SELL ${sell} — වැඩි හරිය SELL` : `▲ BUY ${buy} · ▼ SELL ${sell} — එකඟතාවයක් නැහැ`;
   return `<div class="ai-sec"><b>⚖️ ඔක්කොම එකට</b>
     <div style="overflow-x:auto"><table class="votes cmp-all"><tr><th>Source</th><th>දිශාව</th><th>Success</th></tr>
     ${rows.map((x) => `<tr><td>${x.src}<br><span class="muted" style="font-size:10.5px">${x.txt}${x.note ? ' · ' + x.note : ''}</span></td><td>${x.dir ? `<span class="pill ${x.dir}">${x.dir}</span>${x.lean ? '<br><span class="muted" style="font-size:10px">(setup)</span>' : ''}` : '<span class="muted">—</span>'}</td><td>${x.rate}</td></tr>`).join('')}</table></div>
     <div class="status ${buy && !sell || sell && !buy ? 'ACTIVE' : buy === sell ? 'CAUTION' : 'DONE'}"><b>${verdict}</b></div>
     <div class="small muted">ⓘ එකම දිශාවට sources වැඩි වුණාම විශ්වාසය වැඩියි. ඒත් ඔප්පු වුණු signal එක 📐 Strategy එකයි — ඒක WAIT නම් ඉවසීම හොඳයි.</div></div>`;
+}
+
+function partnerSection(r) {
+  const P = r.partner;
+  if (!P) return '';
+  if (!P.available) return `<div class="ai-sec"><b>🔗 Partner market</b> <span class="small muted">${esc(P.reason || '')}</span></div>`;
+  const TR = (t) => t === 'UP' ? '<span class="pos">▲ UP</span>' : t === 'DOWN' ? '<span class="neg">▼ DOWN</span>' : '<span class="muted">— පැහැදිලි නැහැ</span>';
+  const V = { AGREE: ['ACTIVE', '✅ එකඟයි'], DISAGREE: ['INVALID', '⚠️ එකඟ නැහැ'], FLAT: ['CAUTION', '— Partner trend එක පැහැදිලි නැහැ'], NONE: ['CAUTION', 'සසඳන්න signal / setup එකක් නැහැ'] };
+  const body = P.partners.map((p) => {
+    if (p.error) return `<div class="small neg">${p.symbol}: ${esc(p.error)}</div>`;
+    const v = V[p.verdict] || V.NONE, R = p.research;
+    return `<div class="partner">
+      <div><b>${p.symbol}</b> <span class="muted small">${fmt(p.price, p.symbol)} · ${p.relation > 0 ? 'එකම දිශාවට යන market' : 'අනිත් පැත්තට යන market'}</span></div>
+      <table class="votes"><tr><th>${r.tf}</th><th>4h</th><th>Daily</th></tr><tr><td>${TR(p.trend.tf)}</td><td>${TR(p.trend.h4)}</td><td>${TR(p.trend.d1)}</td></tr></table>
+      <div class="status ${v[0]}"><b>${v[1]}</b>${P.direction ? ` · ${r.symbol} ${P.direction} එකට ${p.symbol} ${p.implied ? `කියන්නේ ${p.implied}` : 'දිශාවක් කියන්නේ නැහැ'}` : ''}</div>
+      ${R ? `<div class="small">📊 Research (2015–2018, ${r.tf}): partner එකඟ වුණු signals win <b>${R.agree.win}%</b> · PF ${R.agree.pf} &nbsp;|&nbsp; එකඟ නැති signals win <b>${R.disagree.win}%</b> · PF ${R.disagree.pf}</div>` : `<div class="small muted">මේ timeframe එකට research නැහැ</div>`}
+    </div>`;
+  }).join('');
+  return `<div class="ai-sec"><b>🔗 Partner market</b> <span class="muted small">${P.direction ? `(${r.symbol} ${P.direction} එක්ක සසඳනවා)` : ''}</span>${body}
+    <div class="small muted">ⓘ Research අනුව partner market එක එකඟ වුණාට signal එක හොඳ වෙන්නේ නැහැ — ඒ නිසා මේක තොරතුරට විතරයි. Signal එකට, grade එකට බලපාන්නේ නැහැ.</div></div>`;
 }
 
 function renderDeep(r) {
@@ -497,7 +522,11 @@ function renderDeep(r) {
   const m = DMATCH[r.match] || MATCH.PARTIAL;
   const L = r.levels, trade = ['BUY', 'SELL'].includes(r.action);
   const main = r.frames[r.tf]?.votes ? r.tf : '1h';
-  const nw = r.news && r.news.items ? r.news.items.map((n) => `<li><span class="muted">${ago(n.time)}</span> · <a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.headline)}</a> <span class="muted">(${esc(n.source)})</span></li>`).join('') : '';
+  const EFF = { BULLISH: ['pos', '📈 Bullish'], BEARISH: ['neg', '📉 Bearish'], NEUTRAL: ['muted', '➖ Neutral'] };
+  const nw = r.news && r.news.items ? r.news.items.map((n) => { const e = EFF[n.effect] || EFF.NEUTRAL; return `<li class="nw"><span class="${e[0]} nw-eff">${e[1]}</span> <span class="muted">${ago(n.time)}</span> · <a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.headline)}</a> <span class="muted">(${esc(n.source)})</span>
+    ${n.short ? `<div class="nw-sum">${esc(n.short)}</div>` : ''}${n.reason ? `<div class="nw-why">→ ${esc(n.reason)} → ${r.symbol} ${n.effect === 'BULLISH' ? '📈' : n.effect === 'BEARISH' ? '📉' : ''}</div>` : ''}</li>`; }).join('') : '';
+  const nsig = r.news?.signal;
+  const newsBox = nsig ? `<div class="status ${nsig.action === 'BUY' || nsig.action === 'SELL' ? 'ACTIVE' : 'CAUTION'}">📰 <b>News signal: ${nsig.action === 'NEUTRAL' ? 'පැහැදිලි දිශාවක් නැහැ' : `<span class="pill ${nsig.action}">${nsig.action}</span>`}</b> · 📈 ${nsig.bull} · 📉 ${nsig.bear} · ➖ ${nsig.neutral} <span class="muted">(පැය 24)</span><br><span class="small">${esc(nsig.why)}</span></div>` : '';
   const cal = Array.isArray(r.calendar) ? r.calendar.map((e) => `<li>${e.impact === 'High' ? '🔴' : '🟠'} <span class="mono">${dt(e.time)}</span> · ${e.country} ${esc(e.title)}${e.forecast ? ` <span class="muted">(forecast ${esc(e.forecast)}, කලින් ${esc(e.previous || '—')})</span>` : ''}</li>`).join('') : '';
   return `
     <div class="ai-head">🔬 Deep Analysis · <span class="muted small">${dt(Date.parse(r.time))} · ${r.symbol} ${r.tf}</span></div>
@@ -515,6 +544,8 @@ function renderDeep(r) {
       <button class="sm ghost" id="btnUseDeep">Deep levels වලින් order fill කරන්න</button>` : ''}
     <div class="status ${m.cls}"><b>${m.icon} ${m.label}</b> · ${DMATCH_TXT[r.match] || ''}${r.strategy ? ` <span class="muted">(Strategy: ${r.strategy.action})</span>` : ''}</div>
     ${r.soonHighImpact?.length ? `<div class="status INVALID">🔴 ඉදිරි පැය 24 ඇතුළත high-impact news: ${r.soonHighImpact.map((e) => `${e.country} ${esc(e.title)} — ${dt(e.time)}`).join(', ')}. ඒ වෙලාවට කලින් trade එකක් open කරන්න එපා.</div>` : ''}
+    ${r.next4h?.length ? `<div class="status INVALID"><b>⚠️ ඊළඟ පැය 4 ඇතුළත ලොකු news: ${r.next4h.map((e) => `${e.country} ${esc(e.title)} (${dt(e.time)})`).join(', ')}</b> — News එකට කලින් trade එක ගන්න එපා. News එකෙන් පස්සේ මිල ස්ථාවර වෙනකම් ඉන්න.</div>` : ''}
+    ${partnerSection(r)}
     <div class="ai-sec"><b>📊 Indicators ඡන්ද</b> <span class="muted small">▲ BUY · ▼ SELL · • neutral (mouse එක තිබ්බම විස්තර)</span>
       <table class="votes"><tr><th></th>${tfs.map((t) => `<th class="${t === r.tf ? 'cur' : ''}">${t}</th>`).join('')}</tr>
       ${names.map(([k, n]) => `<tr><td>${esc(n)}</td>${tfs.map((t) => cell(t, k)).join('')}</tr>`).join('')}
@@ -526,8 +557,9 @@ function renderDeep(r) {
       <div class="small muted">ⓘ ML models දුර්වලයි (coin එකට වඩා ටිකක් හොඳයි) — ඒ නිසා score එකේ බර indicator එකක් තරමයි.</div>`
       : `<div class="small muted">${esc(r.ml?.reason || 'ML නැහැ')}</div>`}</div>
     <details class="ai-sec"><summary><b>🔎 ${main} විස්තර</b></summary><ul class="ev">${(r.frames[main].votes || []).map((v) => `<li>${VOTE(v.vote)} <b>${esc(v.name)}</b>: ${esc(v.why)}</li>`).join('')}</ul></details>
-    <div class="ai-sec"><b>📰 අලුත්ම news</b> ${r.news?.error ? `<span class="small neg">${esc(r.news.error)}</span>` : ''}${nw ? `<ul class="ev news">${nw}</ul>` : '<div class="small muted">News නැහැ</div>'}
-      <div class="small muted">AI නැති නිසා news කියවලා තීරණය කරන්නේ ඔයාමයි.</div></div>
+    <div class="ai-sec"><b>📰 අලුත්ම news සහ market එකට බලපෑම</b> ${r.news?.error ? `<span class="small neg">${esc(r.news.error)}</span>` : ''}
+      ${newsBox}${nw ? `<ul class="ev news">${nw}</ul>` : '<div class="small muted">News නැහැ</div>'}
+      <div class="small muted">ⓘ බලපෑම තීරණය කරන්නේ keywords වලින් (Fed, rate hike, war, dollar falls…) — AI තරම් හරි නැහැ. සාරාංශය English වලින් (news එකේම). News signal එක backtest කරන්න පරණ news data නැහැ — ඒ නිසා AI Tracker එකේ "📰 News signal" එකෙන් දැන් ඉඳන් ඇත්ත success rate එක මනිනවා.</div></div>
     <div class="ai-sec"><b>📅 ඉදිරි පැය 48 economic events</b> ${r.calendar?.error ? `<span class="small neg">${esc(r.calendar.error)}</span>` : ''}${cal ? `<ul class="ev">${cal}</ul>` : (Array.isArray(r.calendar) ? '<div class="small muted">ලොකු events නැහැ ✓</div>' : '')}</div>
     <div class="small muted">ⓘ Deep signal එක backtest කරලා නැහැ — ප්‍රධාන signal එක strategy එකයි. මේ analysis එක AI Tracker එකේ save වුණා.</div>`;
 }
@@ -569,6 +601,16 @@ function scoreRow(name, sc, note) {
   return `<tr><td><b>${name}</b>${note ? `<br><span class="muted small">${note}</span>` : ''}</td><td>${sc.signals}</td><td>${sc.closed}</td>
     <td>${sc.winRate == null ? '—' : sc.winRate + '%'}</td><td class="${cls(sc.netR)}"><b>${sc.netR > 0 ? '+' : ''}${sc.netR}R</b><br><span class="small">$10 risk: ${sc.netR >= 0 ? '+' : '−'}$${Math.abs(usd)}</span></td><td class="small muted">${sc.open} open · ${sc.notFilled} entry නැහැ · ${sc.pending} බලාගෙන</td></tr>`;
 }
+function newsTrackBox(n) {
+  if (!n) return '';
+  const pc = (x) => x.pct == null ? '<span class="muted">—</span>' : `<b class="${x.pct > 50 ? 'pos' : 'neg'}">${x.pct}%</b> <span class="muted small">(${x.right}/${x.done})</span>`;
+  const enough = n.h24.done >= 30;
+  return `<div class="bt-h" style="margin-top:10px">📰 News signal (Deep) <span class="muted small">(BUY/SELL news signals ${n.signals})</span></div>
+    <table class="wrap"><tr><th></th><th>පැය 4කට පස්සේ හරි දිශාවට</th><th>පැය 24කට පස්සේ හරි දිශාවට</th></tr>
+      <tr><td>📰 News signals</td><td>${pc(n.h4)}</td><td>${pc(n.h24)}</td></tr></table>
+    <p class="small muted">${enough ? (n.h24.pct > 55 ? '✅ News signal එක 50% ට වඩා හොඳට වැඩ කරනවා.' : '❌ News signal එක coin එකක් උඩ දැම්මා වගේ (≈50%) — trade කරන්න පාවිච්චි කරන්න එපා.') : '⚠️ තීරණයක් ගන්න news signals 30+ ක් ඕන — Deep Analysis කරන හැම වෙලාවකම save වෙනවා.'} 50% කියන්නේ අහම්බෙන් හරියන ප්‍රමාණය.</p>`;
+}
+
 async function loadTracker() {
   const box = $('tab-tracker');
   box.innerHTML = '<div class="muted small">AI signals check කරනවා…</div>';
@@ -577,7 +619,8 @@ async function loadTracker() {
     const gradeTable = `<div class="bt-h" style="margin-top:6px">🏆 Signal Grades <span class="muted small">(signals ${t.gradeCount} — "අද Signals" සහ Deep/Grade check කරනකොට auto save වෙනවා)</span></div>
       <table class="wrap"><tr><th></th><th>Signals</th><th>ඉවර වුණු</th><th>Win rate</th><th>ලාභ / පාඩු</th><th></th></tr>
         ${scoreRow('🏆 Grade A', t.byGrade.A, 'හොඳම signals')}${scoreRow('🥈 Grade B', t.byGrade.B, 'එක දුර්වල තැනක්')}${scoreRow('⚠️ Grade C', t.byGrade.C, 'trade නොකළ යුතු ඒවා')}
-      </table><p class="small muted">Grade system එක වැඩ කරනවා නම් A row එක B ට වඩා, B row එක C ට වඩා හොඳ වෙන්න ඕන. Signals 30+ ක් එකතු වෙනකම් තීරණයක් ගන්න එපා.</p>`;
+      </table><p class="small muted">Grade system එක වැඩ කරනවා නම් A row එක B ට වඩා, B row එක C ට වඩා හොඳ වෙන්න ඕන. Signals 30+ ක් එකතු වෙනකම් තීරණයක් ගන්න එපා.</p>`
+      + newsTrackBox(t.news);
     if (!t.analyses) { box.innerHTML = gradeTable + '<div class="muted">තාම AI / Deep analyses නැහැ. Signal card එකේ "🤖 AI Analysis + News check" click කරලා analyses එකතු කරන්න. AI signals 50+ ක් එකතු වුණාම මෙතනින් AI ඇත්තටම ලාභද කියලා පේනවා.</div>'; return; }
     const bm = t.byMatch;
     const enough = t.ai.closed >= 30;

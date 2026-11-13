@@ -137,6 +137,8 @@ function votesFor(candles, digits) {
 }
 
 // ---------- news & calendar ----------
+const { newsSignal } = require('./newsSense');
+const { partnerCheck } = require('./partner');
 const KEYWORDS = {
   XAU: ['gold', 'bullion', 'precious', 'xau'], XAG: ['silver', 'precious', 'xag'],
   USD: ['dollar', 'fed', 'powell', 'treasury', 'inflation', 'cpi', 'payroll', 'jobs', 'fomc', 'yields', 'u.s.'],
@@ -170,9 +172,14 @@ async function news(symbol) {
     return r.json();
   });
   const words = parts(symbol).flatMap((p) => KEYWORDS[p] || []);
+  // war / tension news moves safe havens (Gold, Silver, JPY, CHF) even without naming them
+  if (parts(symbol).some((p) => ['XAU', 'XAG', 'JPY', 'CHF'].includes(p))) words.push('war', 'tension', 'missile', 'attack', 'geopolitical', 'safe haven', 'safe-haven', 'invasion', 'escalat');
   const pick = all.filter((n) => words.some((w) => (n.headline + ' ' + n.summary).toLowerCase().includes(w)));
-  const list = (pick.length >= 3 ? pick : all).slice(0, 8).map((n) => ({ time: n.datetime, headline: n.headline, source: n.source, url: n.url }));
-  return { items: list, filtered: pick.length >= 3 };
+  const src = (pick.length >= 3 ? pick : all).slice(0, 30).map((n) => ({ time: n.datetime, headline: n.headline, summary: n.summary, source: n.source, url: n.url }));
+  const [base, quote] = parts(symbol);
+  const signal = newsSignal(src, base, quote, KEYWORDS);
+  const items = src.slice(0, 10).map(({ summary, ...n }) => n);
+  return { items, filtered: pick.length >= 3, signal };
 }
 
 async function calendar(symbol) {
@@ -239,6 +246,12 @@ async function deepAnalyze({ symbol, tf, getCandles, getPrice, strategySignal, l
   if (headlines) { try { newsRes = await news(symbol); } catch (e) { newsRes = { error: e.message }; } }
   try { cal = await calendar(symbol); } catch (e) { cal = { error: e.message }; }
   const soon = Array.isArray(cal) ? cal.filter((e) => e.impact === 'High' && e.time < Date.now() + 24 * 3600e3) : null;
+  // high-impact event in the next 4 hours → don't open a trade before it
+  const next4h = Array.isArray(cal) ? cal.filter((e) => e.impact === 'High' && e.time > Date.now() && e.time < Date.now() + 4 * 3600e3) : null;
+  // partner market (information only — research showed it does not improve signals)
+  const refDir = ['BUY', 'SELL'].includes(strategySignal?.action) ? strategySignal.action : strategySignal?.setup?.dir || (['BUY', 'SELL'].includes(action) ? action : null);
+  let partner;
+  try { partner = await partnerCheck(symbol, tf, refDir, getCandles); } catch (e) { partner = { available: false, reason: e.message }; }
 
   const sa = strategySignal?.action;
   const st = ['BUY', 'SELL'].includes(sa), dt = ['BUY', 'SELL'].includes(action);
@@ -252,7 +265,7 @@ async function deepAnalyze({ symbol, tf, getCandles, getPrice, strategySignal, l
   }
   const out = {
     ok: true, time: new Date().toISOString(), symbol, tf, price, score: +score.toFixed(3), confidence: Math.round(Math.abs(score) * 100),
-    action, why, levels, frames, tfScore, news: newsRes, calendar: cal, soonHighImpact: soon, match, ml, grade: g, strategyStatus: stStatus,
+    action, why, levels, frames, tfScore, news: newsRes, calendar: cal, soonHighImpact: soon, next4h, partner, match, ml, grade: g, strategyStatus: stStatus,
     strategy: strategySignal ? { action: sa, entry: strategySignal.entry, stopLoss: strategySignal.stopLoss, target: strategySignal.tp2, status: strategySignal.profile?.status } : null,
   };
   // log for the Tracker (same shape as ai-log, kind: 'deep')
@@ -260,7 +273,8 @@ async function deepAnalyze({ symbol, tf, getCandles, getPrice, strategySignal, l
     let all = [];
     try { all = JSON.parse(fs.readFileSync(LOG, 'utf8')); } catch {}
     all.unshift({ kind: 'deep', time: out.time, symbol, tf, price, match, grade: g.grade,
-      strategy: out.strategy, ai: { action, entry: levels?.entry, stop_loss: levels?.stopLoss, take_profit: levels?.tp2, confidence: out.confidence } });
+      strategy: out.strategy, ai: { action, entry: levels?.entry, stop_loss: levels?.stopLoss, take_profit: levels?.tp2, confidence: out.confidence },
+      newsSignal: newsRes?.signal ? { action: newsRes.signal.action, bull: newsRes.signal.bull, bear: newsRes.signal.bear, price } : null });
     fs.mkdirSync(path.dirname(LOG), { recursive: true });
     fs.writeFileSync(LOG, JSON.stringify(all.slice(0, 1000), null, 2));
   } catch {}

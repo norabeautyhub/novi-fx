@@ -139,7 +139,25 @@ async function track(getCandles) {
   const byGrade = {};
   for (const G of ['A', 'B', 'C']) byGrade[G] = score(gradeRows.filter((r) => r.grade === G).map((r) => r.outcome));
 
+  // News signal (keyword reader in Deep): did price move that way 4h / 24h later?
+  const newsRows = [], seenNews = new Set();
+  for (const e of readJSON(DEEP_LOG)) {
+    const ns = e.newsSignal;
+    if (!ns || !['BUY', 'SELL'].includes(ns.action) || !(ns.price > 0)) continue;
+    const t0 = Math.floor(Date.parse(e.time) / 1000);
+    const k = `${e.symbol}|${ns.action}|${Math.floor(t0 / 14400)}`;
+    if (seenNews.has(k)) continue; seenNews.add(k);
+    if (!(e.symbol in candleCache)) { try { candleCache[e.symbol] = await getCandles(e.symbol); } catch { candleCache[e.symbol] = null; } }
+    const cs = candleCache[e.symbol];
+    const d = ns.action === 'BUY' ? 1 : -1;
+    const at = (h) => { if (!cs) return null; const c = cs.find((x) => x.time >= t0 + h * 3600); return c ? d * (c.close - ns.price) > 0 : null; };
+    newsRows.push({ time: e.time, symbol: e.symbol, action: ns.action, price: ns.price, h4: at(4), h24: at(24) });
+  }
+  const rate = (k) => { const done = newsRows.filter((r) => r[k] !== null); return { done: done.length, right: done.filter((r) => r[k]).length, pct: done.length ? +((done.filter((r) => r[k]).length / done.length) * 100).toFixed(1) : null }; };
+  const news = { signals: newsRows.length, h4: rate('h4'), h24: rate('h24'), rows: newsRows.slice(0, 50) };
+
   return {
+    news,
     byGrade, gradeCount: grades.length, gradeRows: gradeRows.slice(0, 100),
     time: Date.now(), analyses: log.length,
     aiCount: log.filter((e) => e.kind === 'ai').length, deepCount: log.filter((e) => e.kind === 'deep').length,

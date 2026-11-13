@@ -33,3 +33,9 @@ Verified = walk-forward (unseen years) net > 0 & PF ≥ 1.2, final PF ≥ 1.2, 3
 | EURJPY | disabled | weak |
 | AUDUSD, USDJPY, GBPJPY | disabled | disabled |
 Results: `verify_results.json`. Presets generated with `gen_presets.py`.
+
+## Partner market check — `partner_research.py`
+Question: is a signal better when a linked market agrees (Gold↔Silver, EURUSD↔GBPUSD, EURUSD↔USDCHF inverse, NZDUSD↔AUDUSD)?
+Checks: partner 4h trend, daily trend, EMA20/50, 24-bar momentum · whole grid (112 settings) + app presets · 2015–2018.
+Result: **no consistent improvement** — in most pairs agreement is the same or worse (Gold 4h: agree PF 1.07 vs disagree PF 1.63).
+So the app shows the partner only as information (Deep Analysis), never as a filter. Summary for the app: `src/partner-research.json`.

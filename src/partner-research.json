@@ -1,0 +1,226 @@
+{
+ "XAUUSD|XAGUSD|1h": {
+  "agree": {
+   "n": 21010,
+   "win": 32.2,
+   "pf": 1.04
+  },
+  "disagree": {
+   "n": 5610,
+   "win": 32.8,
+   "pf": 1.07
+  },
+  "betterPct": 34,
+  "configs": 94
+ },
+ "XAUUSD|XAGUSD|4h": {
+  "agree": {
+   "n": 6842,
+   "win": 32.3,
+   "pf": 1.07
+  },
+  "disagree": {
+   "n": 1713,
+   "win": 41.4,
+   "pf": 1.63
+  },
+  "betterPct": 14,
+  "configs": 72
+ },
+ "XAGUSD|XAUUSD|1h": {
+  "agree": {
+   "n": 19839,
+   "win": 31.4,
+   "pf": 0.72
+  },
+  "disagree": {
+   "n": 5080,
+   "win": 34.1,
+   "pf": 0.84
+  },
+  "betterPct": 21,
+  "configs": 96
+ },
+ "XAGUSD|XAUUSD|4h": {
+  "agree": {
+   "n": 6208,
+   "win": 28.2,
+   "pf": 0.74
+  },
+  "disagree": {
+   "n": 1733,
+   "win": 31.4,
+   "pf": 0.88
+  },
+  "betterPct": 44,
+  "configs": 71
+ },
+ "EURUSD|GBPUSD|1h": {
+  "agree": {
+   "n": 20295,
+   "win": 27.2,
+   "pf": 0.83
+  },
+  "disagree": {
+   "n": 12870,
+   "win": 29.6,
+   "pf": 0.94
+  },
+  "betterPct": 30,
+  "configs": 112
+ },
+ "EURUSD|GBPUSD|4h": {
+  "agree": {
+   "n": 6159,
+   "win": 27.0,
+   "pf": 0.86
+  },
+  "disagree": {
+   "n": 3952,
+   "win": 23.9,
+   "pf": 0.72
+  },
+  "betterPct": 73,
+  "configs": 96
+ },
+ "GBPUSD|EURUSD|1h": {
+  "agree": {
+   "n": 18575,
+   "win": 32.4,
+   "pf": 1.07
+  },
+  "disagree": {
+   "n": 9190,
+   "win": 31.8,
+   "pf": 1.04
+  },
+  "betterPct": 43,
+  "configs": 112
+ },
+ "GBPUSD|EURUSD|4h": {
+  "agree": {
+   "n": 5217,
+   "win": 27.3,
+   "pf": 0.83
+  },
+  "disagree": {
+   "n": 2534,
+   "win": 29.8,
+   "pf": 0.99
+  },
+  "betterPct": 33,
+  "configs": 86
+ },
+ "EURUSD|USDCHF|1h": {
+  "agree": {
+   "n": 23034,
+   "win": 28.0,
+   "pf": 0.86
+  },
+  "disagree": {
+   "n": 10131,
+   "win": 28.3,
+   "pf": 0.89
+  },
+  "betterPct": 56,
+  "configs": 112
+ },
+ "EURUSD|USDCHF|4h": {
+  "agree": {
+   "n": 7350,
+   "win": 24.3,
+   "pf": 0.74
+  },
+  "disagree": {
+   "n": 2761,
+   "win": 29.8,
+   "pf": 0.98
+  },
+  "betterPct": 27,
+  "configs": 92
+ },
+ "USDCHF|EURUSD|1h": {
+  "agree": {
+   "n": 20551,
+   "win": 27.3,
+   "pf": 0.78
+  },
+  "disagree": {
+   "n": 6209,
+   "win": 32.2,
+   "pf": 0.99
+  },
+  "betterPct": 35,
+  "configs": 96
+ },
+ "USDCHF|EURUSD|4h": {
+  "agree": {
+   "n": 6688,
+   "win": 27.0,
+   "pf": 0.83
+  },
+  "disagree": {
+   "n": 1892,
+   "win": 30.4,
+   "pf": 0.97
+  },
+  "betterPct": 34,
+  "configs": 71
+ },
+ "NZDUSD|AUDUSD|1h": {
+  "agree": {
+   "n": 18823,
+   "win": 30.6,
+   "pf": 0.92
+  },
+  "disagree": {
+   "n": 7615,
+   "win": 32.7,
+   "pf": 1.02
+  },
+  "betterPct": 41,
+  "configs": 112
+ },
+ "NZDUSD|AUDUSD|4h": {
+  "agree": {
+   "n": 6268,
+   "win": 26.9,
+   "pf": 0.81
+  },
+  "disagree": {
+   "n": 2146,
+   "win": 36.8,
+   "pf": 1.31
+  },
+  "betterPct": 21,
+  "configs": 84
+ },
+ "AUDUSD|NZDUSD|1h": {
+  "agree": {
+   "n": 18485,
+   "win": 28.3,
+   "pf": 0.86
+  },
+  "disagree": {
+   "n": 7306,
+   "win": 25.7,
+   "pf": 0.75
+  },
+  "betterPct": 56,
+  "configs": 112
+ },
+ "AUDUSD|NZDUSD|4h": {
+  "agree": {
+   "n": 5260,
+   "win": 29.3,
+   "pf": 0.94
+  },
+  "disagree": {
+   "n": 2063,
+   "win": 25.7,
+   "pf": 0.79
+  },
+  "betterPct": 75,
+  "configs": 79
+ }
+}
