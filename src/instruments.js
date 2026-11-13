@@ -11,7 +11,7 @@ const INSTRUMENTS = {
   USDJPY: { cost: 0.02, name: 'USD / Yen', type: 'forex', provider: 'twelvedata', tdSymbol: 'USD/JPY', fhSymbol: 'OANDA:USD_JPY', contractSize: 100000, pip: 0.01, digits: 3, quote: 'JPY' },
   USDCAD: { cost: 0.00022, name: 'USD / CAD', type: 'forex', provider: 'twelvedata', tdSymbol: 'USD/CAD', fhSymbol: 'OANDA:USD_CAD', contractSize: 100000, pip: 0.0001, digits: 5, quote: 'CAD' },
   USDCHF: { cost: 0.00022, name: 'USD / Franc', type: 'forex', provider: 'twelvedata', tdSymbol: 'USD/CHF', fhSymbol: 'OANDA:USD_CHF', contractSize: 100000, pip: 0.0001, digits: 5, quote: 'CHF' },
-  XAGUSD: { cost: 0.035, name: 'Silver / USD', type: 'metal', provider: 'twelvedata', tdSymbol: 'XAG/USD', fhSymbol: 'OANDA:XAG_USD', contractSize: 5000, pip: 0.01, digits: 3, quote: 'USD' },
+  XAGUSD: { cost: 0.035, name: 'Silver / USD', type: 'metal', provider: 'twelvedata', tdSymbol: 'XAG/USD', fhSymbol: 'OANDA:XAG_USD', fallback: { binanceFutures: 'XAGUSDT' }, contractSize: 5000, pip: 0.01, digits: 3, quote: 'USD' },
   GBPJPY: { cost: 0.035, name: 'Pound / Yen', type: 'forex', provider: 'twelvedata', tdSymbol: 'GBP/JPY', fhSymbol: 'OANDA:GBP_JPY', contractSize: 100000, pip: 0.01, digits: 3, quote: 'JPY' },
   EURJPY: { cost: 0.03, name: 'Euro / Yen', type: 'forex', provider: 'twelvedata', tdSymbol: 'EUR/JPY', fhSymbol: 'OANDA:EUR_JPY', contractSize: 100000, pip: 0.01, digits: 3, quote: 'JPY' },
   NZDUSD: { cost: 0.0002, name: 'Kiwi / USD', type: 'forex', provider: 'twelvedata', tdSymbol: 'NZD/USD', fhSymbol: 'OANDA:NZD_USD', contractSize: 100000, pip: 0.0001, digits: 5, quote: 'USD' },

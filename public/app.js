@@ -77,6 +77,11 @@ async function loadChart(fit) {
   if (fit) drawTradeMarkers();
   S.dayOpen = first.open;
   setHeaderPrice(S.prices[S.symbol] ?? last.close);
+  // backup data source note (e.g. Silver from Binance Futures when Twelve Data can't give it)
+  let src = $('srcNote');
+  if (!src) { src = document.createElement('span'); src.id = 'srcNote'; src.className = 'src-note'; $('symChg').after(src); }
+  src.textContent = d.source ? `ⓘ ${d.source}` : '';
+  src.title = d.source ? `Twelve Data එකෙන් candles ගන්න බැරි නිසා (${d.sourceNote || ''}) backup source එකෙන් ගත්තා. Futures මිල spot එකට ගොඩක් ළඟයි, ඒත් cents කීපයක් වෙනස් වෙන්න පුළුවන්.` : '';
 }
 
 function setHeaderPrice(p) {
@@ -502,7 +507,7 @@ function partnerSection(r) {
   const TR = (t) => t === 'UP' ? '<span class="pos">▲ UP</span>' : t === 'DOWN' ? '<span class="neg">▼ DOWN</span>' : '<span class="muted">— පැහැදිලි නැහැ</span>';
   const V = { AGREE: ['ACTIVE', '✅ එකඟයි'], DISAGREE: ['INVALID', '⚠️ එකඟ නැහැ'], FLAT: ['CAUTION', '— Partner trend එක පැහැදිලි නැහැ'], NONE: ['CAUTION', 'සසඳන්න signal / setup එකක් නැහැ'] };
   const body = P.partners.map((p) => {
-    if (p.error) return `<div class="small neg">${p.symbol}: ${esc(p.error)}</div>`;
+    if (p.error) return `<div class="status CAUTION small">⚠️ <b>${p.symbol}</b> data දැන් ගන්න බැහැ — partner check එක මඟ හැරියා.<br><span class="muted">හේතුව: ${esc(p.error)}</span></div>`;
     const v = V[p.verdict] || V.NONE, R = p.research;
     return `<div class="partner">
       <div><b>${p.symbol}</b> <span class="muted small">${fmt(p.price, p.symbol)} · ${p.relation > 0 ? 'එකම දිශාවට යන market' : 'අනිත් පැත්තට යන market'}</span></div>

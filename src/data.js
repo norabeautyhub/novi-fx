@@ -14,9 +14,57 @@ const cache = new Map();
 
 async function getJSON(url) {
   const res = await fetch(url, { headers: { 'User-Agent': 'novi-fx/1.0' } });
-  if (!res.ok) throw new Error(`HTTP ${res.status} from ${new URL(url).host}`);
+  if (!res.ok) {
+    // show the provider's real reason (e.g. "not available with your plan") instead of only "HTTP 404"
+    let why = '';
+    try { const b = await res.json(); why = b.message || b.msg || ''; } catch {}
+    const host = new URL(url).host;
+    const name = host.includes('twelvedata') ? 'Twelve Data' : host.includes('binance') ? 'Binance' : host;
+    throw new Error(`${name}: ${why || 'HTTP ' + res.status}${why ? ` (HTTP ${res.status})` : ''}`);
+  }
   return res.json();
 }
+
+// Spot forex/metals are closed from Friday ~21:00 UTC to Sunday ~22:00 UTC.
+// Binance futures trade 24/7 — drop those hours so indicators match the spot market.
+function spotHours(c, tf) {
+  const d = new Date(c.time * 1000), day = d.getUTCDay(), h = d.getUTCHours();
+  if (tf === '1d') return day !== 0 && day !== 6;
+  return !((day === 5 && h >= 21) || day === 6 || (day === 0 && h < 22));
+}
+
+// Backup source for metals: Binance USDⓈ-M futures (e.g. XAGUSDT, live since Jan 2026). Free, no key.
+async function fromBinanceFutures(fsym, tf, limit, fromMs, toMs) {
+  let rows = [];
+  if (fromMs != null) {
+    let start = fromMs;
+    while (start < toMs && rows.length < 20000) {
+      const page = await getJSON(`https://fapi.binance.com/fapi/v1/klines?symbol=${fsym}&interval=${BINANCE_TF[tf]}&startTime=${start}&endTime=${toMs - 1}&limit=1500`);
+      if (!page.length) break;
+      rows = rows.concat(page);
+      start = page[page.length - 1][0] + 1;
+      if (page.length < 1500) break;
+    }
+  } else {
+    let end = null;
+    const want = Math.ceil(limit * 1.45); // weekend candles are removed afterwards
+    while (rows.length < want) {
+      const n = Math.min(1500, want - rows.length);
+      const page = await getJSON(`https://fapi.binance.com/fapi/v1/klines?symbol=${fsym}&interval=${BINANCE_TF[tf]}&limit=${n}` + (end ? `&endTime=${end}` : ''));
+      if (!page.length) break;
+      rows = page.concat(rows);
+      end = page[0][0] - 1;
+      if (page.length < n) break;
+    }
+  }
+  const out = rows.map((r) => ({ time: Math.floor(r[0] / 1000), open: +r[1], high: +r[2], low: +r[3], close: +r[4], volume: +r[5] }))
+    .filter((c) => spotHours(c, tf));
+  return fromMs != null ? out : out.slice(-limit);
+}
+
+// symbols where Twelve Data failed recently → go straight to the backup for a while (saves API calls)
+const tdFailed = new Map();
+const TD_RETRY_MS = 6 * 3600e3;
 
 async function fromBinance(symbol, tf, limit) {
   // Binance gives max 1000 per call → page backwards with endTime
@@ -107,14 +155,31 @@ async function getCandles(symbol, tf = '1h', limit = 500, maxAgeMs, wait = false
   const key = `${symbol}|${tf}|${limit}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < (maxAgeMs ?? CACHE_MS[inst.provider])) return hit.data;
+  const fb = inst.fallback?.binanceFutures;
+  const useBackup = async (reason) => {
+    const data = await fromBinanceFutures(fb, tf, Math.min(limit, 5000));
+    data.source = `Binance Futures ${fb}`;
+    data.sourceNote = reason;
+    cache.set(key, { at: Date.now(), data });
+    return data;
+  };
   if (inst.provider === 'twelvedata') {
+    const f = tdFailed.get(symbol);
+    if (fb && f && Date.now() - f.at < TD_RETRY_MS) return useBackup(f.reason);
     if (wait && !hit) await tdWait();
-    else try { tdThrottle(); } catch (e) { if (hit) return hit.data; throw e; }
+    else try { tdThrottle(); } catch (e) { if (hit) return hit.data; if (fb) return useBackup(e.message); throw e; }
   }
 
-  const data = inst.provider === 'binance'
-    ? await fromBinance(symbol, tf, Math.min(limit, 5000))
-    : await fromTwelveData(inst, tf, Math.min(limit, 5000));
+  let data;
+  if (inst.provider === 'binance') data = await fromBinance(symbol, tf, Math.min(limit, 5000));
+  else {
+    try { data = await fromTwelveData(inst, tf, Math.min(limit, 5000)); }
+    catch (e) {
+      if (!fb || /limit/i.test(e.message) && hit) { if (hit) return hit.data; throw e; }
+      if (!/limit/i.test(e.message)) { tdFailed.set(symbol, { at: Date.now(), reason: e.message }); console.log(`[data] ${symbol}: ${e.message} → backup Binance Futures ${fb}`); }
+      return useBackup(e.message);
+    }
+  }
   cache.set(key, { at: Date.now(), data });
   return data;
 }
@@ -157,14 +222,23 @@ async function getCandlesRange(symbol, tf, fromSec, toSec) {
       start = page[page.length - 1][0] + 1;
       if (page.length < 1000) break;
     }
+  } else if (inst.fallback?.binanceFutures && tdFailed.has(symbol) && Date.now() - tdFailed.get(symbol).at < TD_RETRY_MS) {
+    data = await fromBinanceFutures(inst.fallback.binanceFutures, tf, 0, fromSec * 1000, toSec * 1000);
   } else {
     const key2 = process.env.TWELVEDATA_API_KEY;
     if (!key2) throw new Error('TWELVEDATA_API_KEY .env එකේ නැහැ');
     await tdWait();
     const fmt = (t) => new Date(t * 1000).toISOString().slice(0, 19).replace('T', ' ');
     const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(inst.tdSymbol)}&interval=${TD_TF[tf]}&start_date=${encodeURIComponent(fmt(fromSec))}&end_date=${encodeURIComponent(fmt(toSec))}&outputsize=5000&timezone=UTC&apikey=${key2}`;
-    const j = await getJSON(url);
-    if (j.status === 'error') throw new Error(`Twelve Data: ${j.message}`);
+    let j;
+    try { j = await getJSON(url); if (j.status === 'error') throw new Error(`Twelve Data: ${j.message}`); }
+    catch (e) {
+      if (!inst.fallback?.binanceFutures) throw e;
+      tdFailed.set(symbol, { at: Date.now(), reason: e.message });
+      data = await fromBinanceFutures(inst.fallback.binanceFutures, tf, 0, fromSec * 1000, toSec * 1000);
+      cache.set(key, { at: Date.now(), data });
+      return data;
+    }
     data = (j.values || []).map((v) => ({ time: Math.floor(Date.parse(v.datetime.replace(' ', 'T') + 'Z') / 1000), open: +v.open, high: +v.high, low: +v.low, close: +v.close, volume: +(v.volume || 0) }))
       .filter((c) => c.high !== c.low).reverse();
   }

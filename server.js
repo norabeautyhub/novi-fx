@@ -89,7 +89,7 @@ app.get('/api/candles', wrap(async (req, res) => {
   const ind = computeAll(candles);
   const series = (arr) => arr.map((v, i) => (v == null ? null : { time: candles[i].time, value: v })).filter(Boolean);
   res.json({
-    candles,
+    candles, source: candles.source || null, sourceNote: candles.sourceNote || null,
     ema20: series(ind.ema20), ema50: series(ind.ema50), ema200: series(ind.ema200),
     rsi: series(ind.rsi), macdHist: series(ind.macd.hist),
     bbUpper: series(ind.bb.upper), bbLower: series(ind.bb.lower),

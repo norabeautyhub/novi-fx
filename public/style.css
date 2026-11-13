@@ -171,3 +171,4 @@ select { background: var(--bg); color: var(--text); border: 1px solid var(--line
 .partner { border: 1px solid rgba(255,255,255,.08); border-radius: 6px; padding: 6px 8px; margin-top: 6px; }
 .partner .votes { margin: 4px 0; }
 .ev.news li.nw a { word-break: normal; overflow-wrap: break-word; }
+.src-note { font-size: 11px; color: #f5b041; margin-left: 8px; cursor: help; }
