@@ -16,3 +16,20 @@ python3 research.py 1h,4h
 ```
 
 App එකේ JS strategy code එක (`src/strategy.js`) මේ Python engine එකටම 100% match වෙනවා (trades ගණන සහ R ප්‍රතිඵල එකමයි).
+
+## 10 more markets (2015–2018) — `verify_markets.py`
+Data: `fetch_many.sh PAIR...` (tick → 15m), `rescale.py` for XAG/JPY files (×100).
+Grid: pullback 48 + breakout 64 settings × 1h/4h, spread floor, costs ×1.2.
+Verified = walk-forward (unseen years) net > 0 & PF ≥ 1.2, final PF ≥ 1.2, 30+ trades, ≥ 3/4 years profitable.
+
+| Market | 1h | 4h |
+|---|---|---|
+| USDCAD | disabled | ✅ verified (breakout, WF +9.8R PF 1.28) |
+| NZDUSD | weak | ✅ verified (pullback, WF +7.9R PF 1.21) |
+| EURGBP | ✅ verified (pullback, WF +23.3R PF 1.47) | weak |
+| XAGUSD | weak | disabled |
+| GBPUSD | weak | disabled |
+| USDCHF | disabled | weak |
+| EURJPY | disabled | weak |
+| AUDUSD, USDJPY, GBPJPY | disabled | disabled |
+Results: `verify_results.json`. Presets generated with `gen_presets.py`.
