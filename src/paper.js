@@ -5,8 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const { INSTRUMENTS, toUSD } = require('./instruments');
 
-const FILE = path.join(__dirname, '..', 'data', 'paper.json');
-const START_BALANCE = 10000;
+function makeAccount(fileName = 'paper.json', START_BALANCE = 10000) {
+const FILE = path.join(__dirname, '..', 'data', fileName);
 
 function load() {
   try { return JSON.parse(fs.readFileSync(FILE, 'utf8')); }
@@ -25,7 +25,7 @@ function pnlUSD(pos, price) {
 }
 
 // mode: normal | breakeven (SL → entry at 1R) | highwin (limit entry, 50% close at 1R + SL → entry)
-function open({ symbol, side, lots, stopLoss, takeProfit, price, note, mode, limitPrice, expiresAt }) {
+function open({ symbol, side, lots, stopLoss, takeProfit, price, note, mode, limitPrice, expiresAt, costUSD, meta }) {
   if (!INSTRUMENTS[symbol]) throw new Error('Unknown symbol');
   if (!['BUY', 'SELL'].includes(side)) throw new Error('side must be BUY or SELL');
   lots = +lots;
@@ -43,6 +43,8 @@ function open({ symbol, side, lots, stopLoss, takeProfit, price, note, mode, lim
     stopLoss: stopLoss ? +stopLoss : null, takeProfit: takeProfit ? +takeProfit : null,
     openedAt: Date.now(), note: note || '', events: [],
   };
+  if (costUSD) pos.costUSD = +(+costUSD).toFixed(2);   // spread cost, charged when the trade closes
+  if (meta) pos.meta = meta;
   if (pending) { pos.pending = true; pos.expiresAt = expiresAt ? expiresAt * 1000 : Date.now() + 4 * 3600e3; }
   if (pos.stopLoss) pos.r1 = pos.entry + dir * Math.abs(pos.entry - pos.stopLoss);
   s.positions.push(pos);
@@ -51,18 +53,18 @@ function open({ symbol, side, lots, stopLoss, takeProfit, price, note, mode, lim
 }
 
 function closePos(s, pos, price, reason) {
-  const pnl = +pnlUSD(pos, price).toFixed(2);
+  const pnl = +(pnlUSD(pos, price) - (pos.costUSD || 0)).toFixed(2);
   s.balance = +(s.balance + pnl).toFixed(2);
   s.positions = s.positions.filter((p) => p.id !== pos.id);
   s.history.unshift({ ...pos, exit: price, closedAt: Date.now(), pnl, reason });
   s.history = s.history.slice(0, 500);
 }
 
-function close(id, price) {
+function close(id, price, reason = 'MANUAL') {
   const s = load();
   const pos = s.positions.find((p) => p.id === +id);
   if (!pos) throw new Error('Position එක හම්බුනේ නැහැ');
-  closePos(s, pos, price, 'MANUAL');
+  closePos(s, pos, price, reason);
   save(s);
 }
 
@@ -105,7 +107,7 @@ function mark(prices) {
     }
   }
   if (changed) save(s);
-  const positions = s.positions.map((pos) => ({ ...pos, price: prices[pos.symbol] ?? null, pnl: !pos.pending && prices[pos.symbol] != null ? +pnlUSD(pos, prices[pos.symbol]).toFixed(2) : null }));
+  const positions = s.positions.map((pos) => ({ ...pos, price: prices[pos.symbol] ?? null, pnl: !pos.pending && prices[pos.symbol] != null ? +(pnlUSD(pos, prices[pos.symbol]) - (pos.costUSD || 0)).toFixed(2) : null }));
   const floating = positions.reduce((a, p) => a + (p.pnl || 0), 0);
   const trades = s.history.filter((h) => !String(h.reason).startsWith('PARTIAL') && h.reason !== 'NOT FILLED');
   const closed = trades.length;
@@ -116,11 +118,18 @@ function mark(prices) {
     floating: +floating.toFixed(2),
     positions,
     history: s.history.slice(0, 100),
-    stats: { closed, wins, winRate: closed ? +((wins / closed) * 100).toFixed(1) : 0, totalPnl: +(s.balance - START_BALANCE).toFixed(2) },
+    startBalance: s.startBalance || START_BALANCE,
+    stats: { closed, wins, winRate: closed ? +((wins / closed) * 100).toFixed(1) : 0, totalPnl: +(s.balance - (s.startBalance || START_BALANCE)).toFixed(2) },
   };
 }
 
-function reset() { save({ balance: START_BALANCE, positions: [], history: [], nextId: 1 }); }
+function reset(balance = START_BALANCE) { save({ balance, startBalance: balance, positions: [], history: [], nextId: 1 }); }
 function symbolsOpen() { return [...new Set(load().positions.map((p) => p.symbol))]; }
+function raw() { return load(); }
 
-module.exports = { open, close, mark, reset, symbolsOpen };
+return { open, close, mark, reset, symbolsOpen, raw, pnlUSD };
+}
+
+// manual demo account (Positions / History tabs)
+const main = makeAccount('paper.json', 10000);
+module.exports = { ...main, makeAccount };

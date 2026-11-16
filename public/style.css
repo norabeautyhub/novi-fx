@@ -172,3 +172,23 @@ select { background: var(--bg); color: var(--text); border: 1px solid var(--line
 .partner .votes { margin: 4px 0; }
 .ev.news li.nw a { word-break: normal; overflow-wrap: break-word; }
 .src-note { font-size: 11px; color: #f5b041; margin-left: 8px; cursor: help; }
+
+/* 🤖 Bot tab */
+.bot-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 3px; vertical-align: middle; background: transparent; }
+.bot-dot.on { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+.bot-dot.pause { background: #f5b041; }
+.bot-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+.bot-bar select { margin-left: 3px; }
+.bot-chip { font-size: 12px; font-weight: 600; padding: 3px 8px; border-radius: 12px; }
+.bot-chip.on { background: rgba(34,197,94,.15); color: #22c55e; }
+.bot-chip.pause { background: rgba(245,176,65,.15); color: #f5b041; }
+.bot-chip.off { background: rgba(255,255,255,.07); color: #9aa4b2; }
+button.danger { background: #b91c1c; border-color: #b91c1c; color: #fff; }
+.bot-kpi { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.bot-kpi > div { background: rgba(255,255,255,.04); border-radius: 6px; padding: 5px 9px; font-size: 11px; color: #9aa4b2; display: flex; flex-direction: column; min-width: 78px; }
+.bot-kpi b { font-size: 14px; color: #e5e7eb; }
+.bot-kpi b.pos { color: #22c55e; } .bot-kpi b.neg { color: #ef4444; }
+.bot-curve { width: 100%; height: 120px; margin: 4px 0 8px; }
+.bot-log { max-height: 220px; overflow: auto; font-size: 12px; }
+.bot-info summary { cursor: pointer; font-size: 12px; color: #93c5fd; margin: 4px 0; }
+.bot-info li { margin-bottom: 4px; }

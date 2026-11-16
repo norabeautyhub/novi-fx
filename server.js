@@ -367,6 +367,17 @@ app.post('/api/paper/close', wrap(async (req, res) => {
 }));
 app.post('/api/paper/reset', wrap(async (req, res) => { paper.reset(); res.json({ ok: true }); }));
 
+// ---------- 🤖 Scalping bot (paper) ----------
+const bot = require('./src/bot');
+bot.init({ getCandles, livePrice: stream.livePrice, isLive: stream.isLive, bus: stream.bus, calendar: require('./src/deep').calendar });
+app.get('/api/bot', wrap(async (req, res) => res.json(bot.status())));
+app.post('/api/bot/start', wrap(async (req, res) => res.json(bot.start())));
+app.post('/api/bot/stop', wrap(async (req, res) => res.json(bot.stop())));
+app.post('/api/bot/settings', wrap(async (req, res) => res.json(bot.settings(req.body || {}))));
+app.post('/api/bot/reset', wrap(async (req, res) => res.json(bot.resetAccount(req.body?.balance))));
+app.post('/api/bot/close', wrap(async (req, res) => res.json(bot.closeOne(req.body?.id))));
+app.post('/api/bot/unpause', wrap(async (req, res) => res.json(bot.unpause(req.body?.symbol))));
+
 stream.start();
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Novi FX running → http://localhost:${PORT}`));

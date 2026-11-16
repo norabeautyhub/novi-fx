@@ -281,4 +281,4 @@ async function deepAnalyze({ symbol, tf, getCandles, getPrice, strategySignal, l
   return out;
 }
 
-module.exports = { deepAnalyze, votesFor, TFS };
+module.exports = { deepAnalyze, votesFor, TFS, calendar };

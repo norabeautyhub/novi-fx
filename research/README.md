@@ -39,3 +39,16 @@ Question: is a signal better when a linked market agrees (Gold↔Silver, EURUSD�
 Checks: partner 4h trend, daily trend, EMA20/50, 24-bar momentum · whole grid (112 settings) + app presets · 2015–2018.
 Result: **no consistent improvement** — in most pairs agreement is the same or worse (Gold 4h: agree PF 1.07 vs disagree PF 1.63).
 So the app shows the partner only as information (Deep Analysis), never as a filter. Summary for the app: `src/partner-research.json`.
+
+## Scalping bot — `scalp_research.py`, `scalp_ml.py`, `scalp_export.py`, `calib.py`
+1. Rule-based scalping (4 entry rules × TP/SL/time grid, 12 markets, 15m, 2015–2018): **every market loses after costs** (walk-forward PF 0.25–0.84).
+2. Trained bot: LightGBM predicts the R result of a BUY and a SELL on every closed 15m candle (25 features, all 12 markets pooled).
+   Order: SL 1×ATR, TP 1.5×ATR, 8h time stop. Walk-forward 2016–2018 (unseen years):
+   | threshold (WF model) | trades/day | win | PF | net R | years |
+   |---|---|---|---|---|---|
+   | untrained (all) | 6.5 | 45% | 0.89 | −343 | 0/3 |
+   | 0.10 | 1.8 | 49% | 1.01 | +10 | 1/3 |
+   | 0.15 | 1.0 | 53% | 1.22 | +92 | 3/3 |
+   | 0.20 | 0.5 | 55% | 1.31 | +66 | 3/3 |
+3. The final model (trained on all 4 years) outputs smaller numbers → thresholds matched by selection rate (`calib.py`): 0.004 / 0.040 / 0.078.
+4. JS inference `src/scalpModel.js` matches Python exactly (features rel. diff < 1e-10, predictions identical).
