@@ -31,8 +31,9 @@ const BAR = 900;
 const MARKETS = scalp.MODEL.pairs;
 const RULES = { maxOpen: 4, maxPerCurrency: 2, newsMin: 30, dayLossPct: 4, maxDDPct: 20, pausePF: 0.8, pauseAfter: 30, cooldownMin: 15, resyncMs: 3 * 3600e3 };
 const ACTIVE = { key: 'active', name: '♾ Always Active (නවත්වන්නේ නැතුව)', thr: 0, research: { perDay: 'සීමාවක් නැහැ', wr: '—', pf: '~1.0–1.1', years: 'මැනලා නැහැ — paper එකේ බලන්න' } };
-const ALL_LEVELS = [ACTIVE, ...scalp.MODEL.levels];
-const DEFAULTS = { riskPct: 1, level: 'active', threshold: 0, v3: true };
+const FORCE = { key: 'force', name: '🔁 Force — හැම විටම trade (score ඍණ වුණත්)', thr: -9, research: { perDay: 'ගොඩක් (slot එක නිදහස් වුණු ගමන්)', wr: '—', pf: '<1 (පාඩු බලාපොරොත්තු වෙන්න)', years: 'Paper එකේ විතරක් — research එකේ ඍණයි' } };
+const ALL_LEVELS = [FORCE, ACTIVE, ...scalp.MODEL.levels];
+const DEFAULTS = { riskPct: 1, level: 'force', threshold: -9, v4: true };
 
 let deps = null;
 let st = loadState();
@@ -42,7 +43,7 @@ const lastMark = {};
 let openSet = new Set();
 
 function loadState() {
-  try { const x = { ...defaultState(), ...JSON.parse(fs.readFileSync(FILE, 'utf8')) }; x.settings = { ...DEFAULTS, ...x.settings }; if (!x.settings.v3) { x.settings.level = 'active'; x.settings.v3 = true; } const L = ALL_LEVELS.find((l) => l.key === x.settings.level); if (L) x.settings.threshold = L.thr; return x; }
+  try { const x = { ...defaultState(), ...JSON.parse(fs.readFileSync(FILE, 'utf8')) }; x.settings = { ...DEFAULTS, ...x.settings }; if (!x.settings.v4) { x.settings.level = 'force'; x.settings.v4 = true; } const L = ALL_LEVELS.find((l) => l.key === x.settings.level); if (L) x.settings.threshold = L.thr; return x; }
   catch { return defaultState(); }
 }
 function defaultState() { return { running: false, startedAt: null, stoppedReason: null, settings: { ...DEFAULTS }, day: null, paused: {}, scan: {}, cool: {}, lastCheck: null, checks: 0, log: [] }; }

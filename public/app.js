@@ -1206,7 +1206,7 @@ function renderBot(b) {
 
   const SC = b.scanning || {};
   const scanLine = b.running
-    ? `<div class="bot-scan">${SC.ready ? `<span class="pulse"></span> Markets <b>${SC.ready}/${SC.total}</b> හැම විනාඩියකම analyse කරනවා · අන්තිම check එක <b>${SC.lastCheck ? new Date(SC.lastCheck).toLocaleTimeString('en-GB') : '—'}</b>${SC.best ? `<br><span class="small muted">දැන් හොඳම: <b>${SC.best.s} ${SC.best.side}</b> score ${SC.best.score}${SC.best.score <= (b.settings.threshold || 0) ? ' (ධන නැති නිසා ඉන්නවා)' : ''}${SC.lastSkip ? ` · අන්තිම skip: ${esc(SC.lastSkip)}` : ''}</span>` : ''}` : '⏳ Market data load කරනවා (පළමු වතාවට විනාඩි 2–3ක්)…'}${SC.loading && SC.ready ? ' · <span class="muted">data update වෙනවා</span>' : ''}</div>`
+    ? `<div class="bot-scan">${SC.ready ? `<span class="pulse"></span> Markets <b>${SC.ready}/${SC.total}</b> හැම විනාඩියකම analyse කරනවා · අන්තිම check එක <b>${SC.lastCheck ? new Date(SC.lastCheck).toLocaleTimeString('en-GB') : '—'}</b>${SC.best ? `<br><span class="small muted">දැන් හොඳම: <b>${SC.best.s} ${SC.best.side}</b> score ${SC.best.score}${SC.best.score <= (b.settings.threshold || 0) ? ' (ධන නැති නිසා ඉන්නවා — Trades dropdown එකෙන් Force තෝරන්න)' : ''}${SC.lastSkip ? ` · අන්තිම skip: ${esc(SC.lastSkip)}` : ''}</span>` : ''}` : '⏳ Market data load කරනවා (පළමු වතාවට විනාඩි 2–3ක්)…'}${SC.loading && SC.ready ? ' · <span class="muted">data update වෙනවා</span>' : ''}</div>`
     : '';
   const pausedL = Object.entries(b.paused || {});
   const pausedLine = pausedL.length ? `<div class="small">⏸ Pause කරපු markets: ${pausedL.map(([s, w]) => `<b>${s}</b> <span class="muted">(${esc(w)})</span> <button class="sm ghost" data-bunp="${s}">On</button>`).join(' · ')}</div>` : '';
