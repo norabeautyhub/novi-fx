@@ -33,8 +33,8 @@ const RULES = { maxOpen: 1, maxPerCurrency: 1, newsMin: 30, dayLossPct: 4, maxDD
 const ACTIVE = { key: 'active', name: '♾ Always Active (නවත්වන්නේ නැතුව)', thr: 0, research: { perDay: 'සීමාවක් නැහැ', wr: '—', pf: '~1.0–1.1', years: 'මැනලා නැහැ — paper එකේ බලන්න' } };
 const FORCE = { key: 'force', name: '🔁 Force — හැම විටම trade (score ඍණ වුණත්)', thr: -9, research: { perDay: 'ගොඩක් (slot එක නිදහස් වුණු ගමන්)', wr: '—', pf: '<1 (පාඩු බලාපොරොත්තු වෙන්න)', years: 'Paper එකේ විතරක් — research එකේ ඍණයි' } };
 const ALL_LEVELS = [FORCE, ACTIVE, ...scalp.MODEL.levels];
-const DEFAULTS = { riskPct: 1, level: 'force', threshold: -9, style: 'quick', recovery: true, v4: true };
-const STYLES = { quick: { tp: 0.5, sl: 1.0, timeBars: 3 } /* 3×15m = 45 min max hold: a trade that gets stuck between TP and SL is closed so the bot keeps trading */, model: { ...scalp.MODEL.cfg, timeBars: scalp.MODEL.cfg.T } };
+const DEFAULTS = { riskPct: 1, level: 'force', threshold: -9, style: 'fast', recovery: true, v4: true, v5: true };
+const STYLES = { fast: { tp: 0.4, sl: 0.4, timeBars: 3 }, quick: { tp: 0.5, sl: 1.0, timeBars: 3 } /* 3×15m = 45 min max hold: a trade that gets stuck between TP and SL is closed so the bot keeps trading */, model: { ...scalp.MODEL.cfg, timeBars: scalp.MODEL.cfg.T } };
 
 let deps = null;
 let st = loadState();
@@ -45,7 +45,7 @@ let openSet = new Set();
 
 function loadState() {
   try { const x = { ...defaultState(), ...JSON.parse(fs.readFileSync(FILE, 'utf8')) }; x.settings = { ...DEFAULTS, ...x.settings }; if (!x.settings.v4) { x.settings.level = 'force'; x.settings.v4 = true; }
-      x.settings.style = x.settings.style || 'quick'; if (x.settings.recovery == null) x.settings.recovery = true; const L = ALL_LEVELS.find((l) => l.key === x.settings.level); if (L) x.settings.threshold = L.thr; return x; }
+      if (!x.settings.v5) { x.settings.style = 'fast'; x.settings.v5 = true; } x.settings.style = x.settings.style || 'fast'; if (x.settings.recovery == null) x.settings.recovery = true; const L = ALL_LEVELS.find((l) => l.key === x.settings.level); if (L) x.settings.threshold = L.thr; return x; }
   catch { return defaultState(); }
 }
 function defaultState() { return { running: false, startedAt: null, stoppedReason: null, settings: { ...DEFAULTS }, day: null, paused: {}, scan: {}, cool: {}, lastCheck: null, checks: 0, log: [] }; }
@@ -156,7 +156,7 @@ async function tick(force = false) {
     let A = account();
     for (const pos of A.positions) {
       let bars = pos.meta && pos.meta.timeBars === 0 ? 0 : (pos.meta?.timeBars || scalp.MODEL.cfg.T);
-      if (st.settings.style !== 'model') bars = Math.min(bars || 99, STYLES.quick.timeBars); // quick style: also applies to older open orders
+      if (st.settings.style !== 'model') bars = Math.min(bars || 99, STYLES.fast.timeBars); // quick style: also applies to older open orders
       if (bars && pos.price != null && Date.now() - pos.openedAt > bars * BAR * 1000) {
         acct.close(pos.id, pos.price, `TIME ${Math.round((bars * BAR) / 60)}min`);
         st.cool[pos.symbol] = Date.now();
@@ -206,7 +206,7 @@ async function tick(force = false) {
       const digits = INSTRUMENTS[s].digits;
       const price = +(deps.livePrice(s, 60_000) ?? pr.price).toFixed(digits);
       const d = pr.best === 'BUY' ? 1 : -1;
-      const { tp, sl } = STYLES[st.settings.style] || STYLES.quick;
+      const { tp, sl } = STYLES[st.settings.style] || STYLES.fast;
       const stop = +(price - d * sl * pr.atr).toFixed(digits), target = +(price + d * tp * pr.atr).toFixed(digits);
       const eq = account().equity;
       const lastT = botTrades()[0];
@@ -224,7 +224,7 @@ async function tick(force = false) {
       const inst = INSTRUMENTS[s];
       const costUSD = toUSD(s, inst.cost * size.lots * inst.contractSize, price);
       const pos = acct.open({ symbol: s, side: pr.best, lots: size.lots, stopLoss: stop, takeProfit: target, price, costUSD,
-        note: `Bot · score ${pr.score.toFixed(2)}`, meta: { bot: true, score: +pr.score.toFixed(3), why: pr.why, timeBars: (STYLES[st.settings.style] || STYLES.quick).timeBars, recovery: recov > 1, riskUSD: size.riskUSD } });
+        note: `Bot · score ${pr.score.toFixed(2)}`, meta: { bot: true, score: +pr.score.toFixed(3), why: pr.why, timeBars: (STYLES[st.settings.style] || STYLES.fast).timeBars, recovery: recov > 1, riskUSD: size.riskUSD } });
       openSet.add(s);
       log(`#${pos.id} ${s} ${pr.best} ${size.lots} lots @ ${price} · SL ${stop} · TP ${target} · risk $${size.riskUSD} — ${pr.why}`, 'open', s);
     }
