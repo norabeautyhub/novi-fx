@@ -50,6 +50,13 @@ app.get('/api/config', (req, res) => {
   });
 });
 
+// Latest server prices (backup for the browser when its live connection drops)
+app.get('/api/prices', (req, res) => {
+  const out = {};
+  for (const [s, b] of Object.entries(stream.book)) if (Date.now() - b.time < 120_000) out[s] = { p: b.price, t: b.time };
+  res.json(out);
+});
+
 app.get('/api/status', (req, res) => {
   const live = {};
   for (const s of Object.keys(INSTRUMENTS)) live[s] = { live: stream.isLive(s), lastTick: stream.book[s]?.time || null };

@@ -93,19 +93,30 @@ function setHeaderPrice(p) {
 }
 
 /* ---------- live prices (Server-Sent Events) ---------- */
-function startStream() {
-  const pw = store('novi-fx-pw');
-  const es = new EventSource('/api/stream' + (pw ? '?pw=' + encodeURIComponent(pw) : ''));
-  es.onmessage = (ev) => {
-    const t = JSON.parse(ev.data);
-    S.prices[t.s] = t.p;
-    S.live[t.s] = Date.now();
-    const wl = document.querySelector(`.wl-item[data-s="${t.s}"] .lp`);
-    if (wl) { wl.textContent = fmt(t.p, t.s); }
-    if (t.s === S.symbol) onLiveTick(t.p, Math.floor(t.t / 1000));
-  };
-  es.onerror = () => {}; // EventSource reconnects by itself
+let ES = null, lastStreamMsg = 0;
+function applyTick(t) {
+  S.prices[t.s] = t.p;
+  S.live[t.s] = Date.now();
+  const wl = document.querySelector(`.wl-item[data-s="${t.s}"] .lp`);
+  if (wl) { wl.textContent = fmt(t.p, t.s); }
+  if (t.s === S.symbol) onLiveTick(t.p, Math.floor(t.t / 1000));
 }
+function startStream() {
+  try { ES && ES.close(); } catch {}
+  const pw = store('novi-fx-pw');
+  ES = new EventSource('/api/stream' + (pw ? '?pw=' + encodeURIComponent(pw) : ''));
+  lastStreamMsg = Date.now();
+  ES.onmessage = (ev) => { lastStreamMsg = Date.now(); applyTick(JSON.parse(ev.data)); };
+  ES.onerror = () => { if (ES.readyState === 2) setTimeout(startStream, 3000); }; // closed for good → reconnect
+}
+// watchdog: no live price for 20s → reconnect; backup: pull latest server prices every 5s
+setInterval(() => { if (Date.now() - lastStreamMsg > 20_000) startStream(); }, 10_000);
+setInterval(async () => {
+  try {
+    const r = await api('/api/prices');
+    for (const [s, x] of Object.entries(r)) if (!S.live[s] || x.t > S.live[s] - 1000) applyTick({ s, p: x.p, t: x.t });
+  } catch {}
+}, 5000);
 
 function onLiveTick(p, tSec) {
   setHeaderPrice(p);
@@ -1211,7 +1222,7 @@ function renderBot(b) {
 
   const age = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`; };
   const posT = b.positions.length ? `<table><tr><th>#</th><th>Market</th><th>Side</th><th>Lots</th><th>Entry</th><th>මිල</th><th>SL</th><th>TP</th><th>P&L</th><th>කාලය</th><th></th></tr>
-    ${b.positions.map((x) => `<tr title="${esc(x.meta?.why || '')}"><td>${x.id}</td><td>${x.symbol}</td><td class="${x.side === 'BUY' ? 'pos' : 'neg'}">${x.side}</td><td>${x.lots}</td><td class="mono">${fmt(x.entry, x.symbol)}</td><td class="mono">${fmt(x.price, x.symbol)}</td><td class="mono">${fmt(x.stopLoss, x.symbol)}</td><td class="mono">${fmt(x.takeProfit, x.symbol)}</td><td class="mono ${cls(x.pnl)}">${money(x.pnl)}</td><td class="small">${age(x.openedAt)}</td><td class="small muted">bot manage කරනවා</td></tr>`).join('')}</table>`
+    ${b.positions.map((x) => `<tr title="${esc(x.meta?.why || '')}"><td>${x.id}</td><td>${x.symbol}</td><td class="${x.side === 'BUY' ? 'pos' : 'neg'}">${x.side}</td><td>${x.lots}</td><td class="mono">${fmt(x.entry, x.symbol)}</td><td class="mono">${fmt(x.price, x.symbol)}</td><td class="mono">${fmt(x.stopLoss, x.symbol)}</td><td class="mono">${fmt(x.takeProfit, x.symbol)}</td><td class="mono ${cls(x.pnl)}">${money(x.pnl)}<div class="small muted">cost ${money(-(x.costUSD || 0))}</div></td><td class="small">${age(x.openedAt)}</td><td class="small muted">bot manage කරනවා</td></tr>`).join('')}</table>`
     : `<div class="small muted">දැන් open orders නැහැ.${b.running ? ' හොඳ අවස්ථාවක් ආපු ගමන් bot එක order එක දානවා.' : ''}</div>`;
 
   const SC = b.scanning || {};
