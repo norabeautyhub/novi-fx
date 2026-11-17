@@ -221,7 +221,7 @@ async function tick(force = false) {
         if (st.day?.paused) return 'day pause';
         if (st.paused[s]) return 'market pause';
         if (open.some((p) => p.symbol === s)) return 'already open';
-        if (st.cool[s] && Date.now() - st.cool[s] < RULES.cooldownMin * 60e3) return 'cooldown';
+        if (st.cool[s] && Date.now() - st.cool[s] < (st.settings.style === 'fast' ? 60e3 : RULES.cooldownMin * 60e3)) return 'cooldown';
         if (open.length >= RULES.maxOpen) return 'max open';
         for (const c of parts(s)) if (open.filter((p) => parts(p.symbol).includes(c)).length >= RULES.maxPerCurrency) return `${c} limit`;
         if (nb) return `news ${nb.country} ${nb.title}`;
