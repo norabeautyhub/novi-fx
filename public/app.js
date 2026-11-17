@@ -1043,10 +1043,16 @@ async function placeOrder(side, force) {
 $('btnBuy').onclick = () => placeOrder('BUY');
 $('btnSell').onclick = () => placeOrder('SELL');
 
+/* bot full screen */
+(function () { const b = $('botFull'); if (!b) return; const t = $('tab-bot');
+  const set = (on) => { t.classList.toggle('full', on); b.textContent = on ? '✕ Full screen වසන්න' : '⛶ Full screen'; };
+  b.onclick = () => set(!t.classList.contains('full'));
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && t.classList.contains('full')) set(false); });
+})();
 /* ---------- tabs / nav ---------- */
 function switchTab(name) {
   if (name === 'tracker') loadTracker();
-  if (name === 'bot') loadBot();
+  if (name === 'bot') { loadBot(); setPanelH(9999); }
   if (name === 'sessions' && !$('ssFrom').value) ssPreset('week');
   if ((name === 'backtest' || name === 'scanner' || name === 'tracker' || name === 'sessions' || name === 'bot') && document.querySelector('.tab-body').offsetHeight < 330) setPanelH(380);
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
@@ -1205,7 +1211,7 @@ function renderBot(b) {
 
   const age = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`; };
   const posT = b.positions.length ? `<table><tr><th>#</th><th>Market</th><th>Side</th><th>Lots</th><th>Entry</th><th>මිල</th><th>SL</th><th>TP</th><th>P&L</th><th>කාලය</th><th></th></tr>
-    ${b.positions.map((x) => `<tr title="${esc(x.meta?.why || '')}"><td>${x.id}</td><td>${x.symbol}</td><td class="${x.side === 'BUY' ? 'pos' : 'neg'}">${x.side}</td><td>${x.lots}</td><td class="mono">${fmt(x.entry, x.symbol)}</td><td class="mono">${fmt(x.price, x.symbol)}</td><td class="mono">${fmt(x.stopLoss, x.symbol)}</td><td class="mono">${fmt(x.takeProfit, x.symbol)}</td><td class="mono ${cls(x.pnl)}">${money(x.pnl)}</td><td class="small">${age(x.openedAt)}</td><td class="small muted">bot manage කරනවා</td></tr>`).join('')}</table>`
+    ${b.positions.map((x) => `<tr title="${esc(x.meta?.why || '')}"><td>${x.id}</td><td>${x.symbol}</td><td class="${x.side === 'BUY' ? 'pos' : 'neg'}">${x.side}</td><td>${x.lots}</td><td class="mono">${fmt(x.entry, x.symbol)}</td><td class="mono">${fmt(x.price, x.symbol)}</td><td class="mono">${fmt(x.stopLoss, x.symbol)}</td><td class="mono">${fmt(x.takeProfit, x.symbol)}</td><td class="mono ${cls(x.pnl)}">${money(x.pnl)}</td><td class="small">${age(x.openedAt)}</td><td><button class="sm ghost" data-bclose="${x.id}">Close</button></td></tr>`).join('')}</table>`
     : `<div class="small muted">දැන් open orders නැහැ.${b.running ? ' හොඳ අවස්ථාවක් ආපු ගමන් bot එක order එක දානවා.' : ''}</div>`;
 
   const SC = b.scanning || {};
