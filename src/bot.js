@@ -44,7 +44,7 @@ const lastMark = {};
 let openSet = new Set();
 
 function loadState() {
-  try { const x = { ...defaultState(), ...JSON.parse(fs.readFileSync(FILE, 'utf8')) }; x.settings = { ...DEFAULTS, ...x.settings }; if (!x.settings.v4) { x.settings.level = 'force'; x.settings.v4 = true; }
+  try { const saved = JSON.parse(fs.readFileSync(FILE, 'utf8')); const raw = saved.settings || {}; const x = { ...defaultState(), ...saved }; x.settings = { ...DEFAULTS, ...raw, v4: raw.v4, v5: raw.v5 }; if (!x.settings.v4) { x.settings.level = 'force'; x.settings.v4 = true; }
       if (!x.settings.v5) { x.settings.style = 'fast'; x.settings.v5 = true; } x.settings.style = x.settings.style || 'fast'; if (x.settings.recovery == null) x.settings.recovery = true; const L = ALL_LEVELS.find((l) => l.key === x.settings.level); if (L) x.settings.threshold = L.thr; return x; }
   catch { return defaultState(); }
 }
@@ -181,12 +181,22 @@ async function tick(force = false) {
       if (!series || series.length < 1000) { st.scan[s] = { t: Date.now(), note: '1m data එකතු වෙනවා' }; continue; }
       const pr = scalp.predict(s, series, series.length - 1);
       if (!pr) continue;
-      st.scan[s] = { t: Date.now(), buy: +pr.long.toFixed(3), sell: +pr.short.toFixed(3), best: pr.best, score: +pr.score.toFixed(3) };
+      st.scan[s] = { t: Date.now(), atr: pr.atr, buy: +pr.long.toFixed(3), sell: +pr.short.toFixed(3), best: pr.best, score: +pr.score.toFixed(3) };
       if (pr.score > st.settings.threshold) cands.push({ s, pr });
       if (!bestNow || pr.score > bestNow.score) bestNow = { s, score: +pr.score.toFixed(3), side: pr.best };
     }
     st.lastCheck = Date.now(); st.checks = (st.checks || 0) + 1; st.readyN = readyN; st.bestNow = bestNow;
 
+    // 1b) open orders follow the current style (fast): tighten TP/SL once
+    if (st.settings.style === 'fast') {
+      for (const pos of account().positions) {
+        if (pos.meta?.style === 'fast') continue;
+        const atr = st.scan[pos.symbol]?.atr; if (!atr) continue;
+        const d = pos.side === 'BUY' ? 1 : -1, dg = INSTRUMENTS[pos.symbol].digits, F = STYLES.fast;
+        acct.setLevels(pos.id, +(pos.entry - d * F.sl * atr).toFixed(dg), +(pos.entry + d * F.tp * atr).toFixed(dg), { style: 'fast' });
+        log(`#${pos.id} ${pos.symbol} TP/SL Fast style එකට ගෙනාවා`, 'info', pos.symbol);
+      }
+    }
     // 2) best opportunities first
     cands.sort((a, b) => b.pr.score - a.pr.score);
     for (const { s, pr } of cands) {
@@ -224,7 +234,7 @@ async function tick(force = false) {
       const inst = INSTRUMENTS[s];
       const costUSD = toUSD(s, inst.cost * size.lots * inst.contractSize, price);
       const pos = acct.open({ symbol: s, side: pr.best, lots: size.lots, stopLoss: stop, takeProfit: target, price, costUSD,
-        note: `Bot · score ${pr.score.toFixed(2)}`, meta: { bot: true, score: +pr.score.toFixed(3), why: pr.why, timeBars: (STYLES[st.settings.style] || STYLES.fast).timeBars, recovery: recov > 1, riskUSD: size.riskUSD } });
+        note: `Bot · score ${pr.score.toFixed(2)}`, meta: { bot: true, score: +pr.score.toFixed(3), why: pr.why, timeBars: (STYLES[st.settings.style] || STYLES.fast).timeBars, recovery: recov > 1, style: st.settings.style, riskUSD: size.riskUSD } });
       openSet.add(s);
       log(`#${pos.id} ${s} ${pr.best} ${size.lots} lots @ ${price} · SL ${stop} · TP ${target} · risk $${size.riskUSD} — ${pr.why}`, 'open', s);
     }

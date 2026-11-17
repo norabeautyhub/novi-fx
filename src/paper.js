@@ -126,8 +126,12 @@ function mark(prices) {
 function reset(balance = START_BALANCE) { save({ balance, startBalance: balance, positions: [], history: [], nextId: 1 }); }
 function symbolsOpen() { return [...new Set(load().positions.map((p) => p.symbol))]; }
 function raw() { return load(); }
+function setLevels(id, stopLoss, takeProfit, meta = {}) {
+  const s = load(); const pos = s.positions.find((p) => p.id === +id); if (!pos) return null;
+  pos.stopLoss = stopLoss; pos.takeProfit = takeProfit; pos.meta = { ...(pos.meta || {}), ...meta }; save(s); return pos;
+}
 
-return { open, close, mark, reset, symbolsOpen, raw, pnlUSD };
+return { open, close, mark, reset, symbolsOpen, raw, pnlUSD, setLevels };
 }
 
 // manual demo account (Positions / History tabs)
