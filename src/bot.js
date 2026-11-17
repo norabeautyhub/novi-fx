@@ -161,7 +161,7 @@ async function tick(force = false) {
     for (const pos of A.positions) {
       let bars = pos.meta && pos.meta.timeBars === 0 ? 0 : (pos.meta?.timeBars || scalp.MODEL.cfg.T);
       if (st.settings.style !== 'model') bars = Math.min(bars || 99, STYLES.fast.timeBars); // quick style: also applies to older open orders
-      if (st.settings.style === 'fast' && pos.price != null && Date.now() - pos.openedAt >= FAST_HOLD_MIN * 60e3) {
+      if (st.settings.style === 'fast' && pos.price != null && !(pos.pnl > 0) && Date.now() - pos.openedAt >= FAST_HOLD_MIN * 60e3) {
         acct.close(pos.id, pos.price, `TIME ${FAST_HOLD_MIN}min`); continue;
       }
       if (bars && pos.price != null && Date.now() - pos.openedAt > bars * BAR * 1000) {
@@ -181,7 +181,9 @@ async function tick(force = false) {
     // 1) score every ready market (fast, no waiting)
     const cands = [];
     let readyN = 0, bestNow = null;
+    const enabled = (s) => !st.settings.markets || st.settings.markets.includes(s);
     for (const s of MARKETS) {
+      if (!enabled(s)) { st.scan[s] = { t: Date.now(), note: 'off (ඔයා තෝරලා නැහැ)' }; continue; }
       if (!ready(s)) { st.scan[s] = { t: Date.now(), note: C[s] ? 'data update වෙනවා / market වහලා' : 'data load වෙනවා' }; continue; }
       readyN++;
       const { series } = rollingSeries(s);
@@ -194,6 +196,12 @@ async function tick(force = false) {
     }
     st.lastCheck = Date.now(); st.checks = (st.checks || 0) + 1; st.readyN = readyN; st.bestNow = bestNow;
 
+    // smart close (2): in profit + the model now scores this side negative (likely to turn) → take the profit now
+    for (const pos of account().positions) {
+      const sc = st.scan[pos.symbol]; if (!(pos.pnl > 0) || !sc || sc.buy == null) continue;
+      const mine = pos.side === 'BUY' ? sc.buy : sc.sell;
+      if (mine < 0) { acct.close(pos.id, pos.price, 'SMART'); delete peak[pos.id]; st.cool[pos.symbol] = Date.now(); log(`#${pos.id} ${pos.symbol} ආපහු හැරෙන ලකුණු — ලාභය අරන් close කළා (+$${pos.pnl})`, 'close', pos.symbol); }
+    }
     // 1b) open orders follow the current style (fast): tighten TP/SL once
     if (st.settings.style === 'fast') {
       for (const pos of account().positions) {
@@ -269,10 +277,16 @@ async function tick(force = false) {
 
 // log closes made by the live SL/TP check (+ cooldown)
 let knownHist = null;
+const peak = {};
 function lossGuard() {
   if (st.settings.style !== 'fast') return;
   for (const pos of account().positions) {
     if (pos.price != null && pos.pnl != null && pos.pnl <= -MAX_LOSS_USD) { acct.close(pos.id, pos.price, `LOSS $${MAX_LOSS_USD}`); log(`#${pos.id} ${pos.symbol} −$${MAX_LOSS_USD} සීමාවට ආවා — close කළා`, 'close', pos.symbol); }
+    else if (pos.price != null && pos.pnl != null) {
+      // smart close (1): once in profit, never let it turn back into a loss — close if 40% of the best profit is given back
+      const pk = Math.max(peak[pos.id] || 0, pos.pnl); peak[pos.id] = pk;
+      if (pk > 0 && pos.pnl <= pk * 0.6) { acct.close(pos.id, pos.price, 'PROFIT LOCK'); delete peak[pos.id]; st.cool[pos.symbol] = Date.now(); log(`#${pos.id} ${pos.symbol} ලාභය ආපහු යන්න ගත්තා (උපරිම +$${pk.toFixed(2)}) — close කළා`, 'close', pos.symbol); }
+    }
   }
 }
 function watchCloses() {
@@ -317,6 +331,7 @@ function stop(reason = 'ඔයා Stop කළා') {
 function settings(s) {
   if (s.riskPct != null) st.settings.riskPct = Math.min(3, Math.max(0.25, +s.riskPct));
   if (s.style && STYLES[s.style]) st.settings.style = s.style;
+  if (Array.isArray(s.markets)) st.settings.markets = s.markets.filter((m) => MARKETS.includes(m));
   if (s.recovery != null) st.settings.recovery = !!s.recovery;
   if (s.level) { const L = ALL_LEVELS.find((x) => x.key === s.level); if (L) { st.settings.level = L.key; st.settings.threshold = L.thr; } }
   log(`Settings: risk ${st.settings.riskPct}% · ${ALL_LEVELS.find((l) => l.key === st.settings.level)?.name}`, 'info'); save();
@@ -355,7 +370,7 @@ function status() {
     byMarket: Object.entries(per).map(([s, p]) => ({ symbol: s, trades: p.n, winRate: +((p.wins / p.n) * 100).toFixed(1), pnl: +p.pnl.toFixed(2), paused: st.paused[s] || null })).sort((a, b) => b.pnl - a.pnl),
     paused: st.paused,
     positions: A.positions, history: hist.slice(0, 100), log: st.log.filter((l) => l.type !== 'info' || /reset|Settings|on කළා/.test(l.msg)).slice(0, 150), curve,
-    model: { version: scalp.MODEL.version, trainedOn: scalp.MODEL.trainedOn, cfg: scalp.MODEL.cfg, research: scalp.MODEL.research, nFeatures: scalp.MODEL.nFeatures }, levels: ALL_LEVELS,
+    model: { version: scalp.MODEL.version, trainedOn: scalp.MODEL.trainedOn, cfg: scalp.MODEL.cfg, research: scalp.MODEL.research, nFeatures: scalp.MODEL.nFeatures }, levels: ALL_LEVELS, markets: MARKETS,
   };
 }
 
