@@ -1170,6 +1170,8 @@ function renderBot(b) {
       ${chip}
       ${b.running ? '<button class="sm danger" id="botStop">⏹ Stop</button>' : '<button class="sm" id="botStart">▶ Start</button>'}
       <label class="small">Trades: <select id="botLevel">${(b.levels || []).map((l) => `<option value="${l.key}" ${b.settings.level === l.key ? 'selected' : ''}>${l.name} · research PF ${l.research.pf}</option>`).join('')}</select></label>
+      <label class="small">Style: <select id="botStyle"><option value="quick" ${b.settings.style !== 'model' ? 'selected' : ''}>Quick — TP 0.5 / SL 1 ATR · time stop නැහැ</option><option value="model" ${b.settings.style === 'model' ? 'selected' : ''}>Model — TP 1.5 / SL 1 · පැය 8</option></select></label>
+      <label class="small"><input type="checkbox" id="botRecov" ${b.settings.recovery ? 'checked' : ''} style="width:auto"> පාඩුවෙන් පස්සේ risk ×1.5 (එක් වරක්)</label>
       <label class="small">Risk: <select id="botRisk">${[0.5, 1, 2].map((r) => `<option value="${r}" ${+b.settings.riskPct === r ? 'selected' : ''}>${r}% / trade</option>`).join('')}</select></label>
       ${!b.running ? '<button class="sm ghost" id="botReset">Account reset ($1,000)</button>' : ''}
     </div>
@@ -1185,6 +1187,8 @@ function renderBot(b) {
   on('botStop', () => botCall('/stop'));
   on('botReset', () => { if (confirm('Bot account එක $1,000 ට reset කරන්නද? History මැකෙනවා.')) botCall('/reset', { balance: 1000 }); });
   const sl = $('botLevel'); if (sl) sl.onchange = () => botCall('/settings', { level: sl.value });
+  const ss = $('botStyle'); if (ss) ss.onchange = () => botCall('/settings', { style: ss.value });
+  const rc = $('botRecov'); if (rc) rc.onchange = () => botCall('/settings', { recovery: rc.checked });
   const sr = $('botRisk'); if (sr) sr.onchange = () => botCall('/settings', { riskPct: +sr.value });
 
   // equity curve
@@ -1201,7 +1205,7 @@ function renderBot(b) {
 
   const age = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`; };
   const posT = b.positions.length ? `<table><tr><th>#</th><th>Market</th><th>Side</th><th>Lots</th><th>Entry</th><th>මිල</th><th>SL</th><th>TP</th><th>P&L</th><th>කාලය</th><th></th></tr>
-    ${b.positions.map((x) => `<tr title="${esc(x.meta?.why || '')}"><td>${x.id}</td><td>${x.symbol}</td><td class="${x.side === 'BUY' ? 'pos' : 'neg'}">${x.side}</td><td>${x.lots}</td><td class="mono">${fmt(x.entry, x.symbol)}</td><td class="mono">${fmt(x.price, x.symbol)}</td><td class="mono">${fmt(x.stopLoss, x.symbol)}</td><td class="mono">${fmt(x.takeProfit, x.symbol)}</td><td class="mono ${cls(x.pnl)}">${money(x.pnl)}</td><td class="small">${age(x.openedAt)}</td><td><button class="sm ghost" data-bclose="${x.id}">Close</button></td></tr>`).join('')}</table>`
+    ${b.positions.map((x) => `<tr title="${esc(x.meta?.why || '')}"><td>${x.id}</td><td>${x.symbol}</td><td class="${x.side === 'BUY' ? 'pos' : 'neg'}">${x.side}</td><td>${x.lots}</td><td class="mono">${fmt(x.entry, x.symbol)}</td><td class="mono">${fmt(x.price, x.symbol)}</td><td class="mono">${fmt(x.stopLoss, x.symbol)}</td><td class="mono">${fmt(x.takeProfit, x.symbol)}</td><td class="mono ${cls(x.pnl)}">${money(x.pnl)}</td><td class="small">${age(x.openedAt)}</td><td class="small muted">bot manage කරනවා</td></tr>`).join('')}</table>`
     : `<div class="small muted">දැන් open orders නැහැ.${b.running ? ' හොඳ අවස්ථාවක් ආපු ගමන් bot එක order එක දානවා.' : ''}</div>`;
 
   const SC = b.scanning || {};

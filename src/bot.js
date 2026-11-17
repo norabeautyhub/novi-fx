@@ -29,11 +29,12 @@ const CACHE = path.join(DATA, 'bot-candles.json');
 const acct = makeAccount('bot-paper.json', 1000);
 const BAR = 900;
 const MARKETS = scalp.MODEL.pairs;
-const RULES = { maxOpen: 4, maxPerCurrency: 2, newsMin: 30, dayLossPct: 4, maxDDPct: 20, pausePF: 0.8, pauseAfter: 30, cooldownMin: 15, resyncMs: 3 * 3600e3 };
+const RULES = { maxOpen: 1, maxPerCurrency: 1, newsMin: 30, dayLossPct: 4, maxDDPct: 20, pausePF: 0.8, pauseAfter: 30, cooldownMin: 15, resyncMs: 3 * 3600e3 };
 const ACTIVE = { key: 'active', name: '♾ Always Active (නවත්වන්නේ නැතුව)', thr: 0, research: { perDay: 'සීමාවක් නැහැ', wr: '—', pf: '~1.0–1.1', years: 'මැනලා නැහැ — paper එකේ බලන්න' } };
 const FORCE = { key: 'force', name: '🔁 Force — හැම විටම trade (score ඍණ වුණත්)', thr: -9, research: { perDay: 'ගොඩක් (slot එක නිදහස් වුණු ගමන්)', wr: '—', pf: '<1 (පාඩු බලාපොරොත්තු වෙන්න)', years: 'Paper එකේ විතරක් — research එකේ ඍණයි' } };
 const ALL_LEVELS = [FORCE, ACTIVE, ...scalp.MODEL.levels];
-const DEFAULTS = { riskPct: 1, level: 'force', threshold: -9, v4: true };
+const DEFAULTS = { riskPct: 1, level: 'force', threshold: -9, style: 'quick', recovery: true, v4: true };
+const STYLES = { quick: { tp: 0.5, sl: 1.0, timeBars: 0 }, model: { ...scalp.MODEL.cfg, timeBars: scalp.MODEL.cfg.T } };
 
 let deps = null;
 let st = loadState();
@@ -43,7 +44,8 @@ const lastMark = {};
 let openSet = new Set();
 
 function loadState() {
-  try { const x = { ...defaultState(), ...JSON.parse(fs.readFileSync(FILE, 'utf8')) }; x.settings = { ...DEFAULTS, ...x.settings }; if (!x.settings.v4) { x.settings.level = 'force'; x.settings.v4 = true; } const L = ALL_LEVELS.find((l) => l.key === x.settings.level); if (L) x.settings.threshold = L.thr; return x; }
+  try { const x = { ...defaultState(), ...JSON.parse(fs.readFileSync(FILE, 'utf8')) }; x.settings = { ...DEFAULTS, ...x.settings }; if (!x.settings.v4) { x.settings.level = 'force'; x.settings.v4 = true; }
+      x.settings.style = x.settings.style || 'quick'; if (x.settings.recovery == null) x.settings.recovery = true; const L = ALL_LEVELS.find((l) => l.key === x.settings.level); if (L) x.settings.threshold = L.thr; return x; }
   catch { return defaultState(); }
 }
 function defaultState() { return { running: false, startedAt: null, stoppedReason: null, settings: { ...DEFAULTS }, day: null, paused: {}, scan: {}, cool: {}, lastCheck: null, checks: 0, log: [] }; }
@@ -153,8 +155,8 @@ async function tick(force = false) {
     seedLoop().catch(() => {});
     let A = account();
     for (const pos of A.positions) {
-      const bars = pos.meta?.timeBars || scalp.MODEL.cfg.T;
-      if (pos.price != null && Date.now() - pos.openedAt > bars * BAR * 1000) {
+      const bars = pos.meta && pos.meta.timeBars === 0 ? 0 : (pos.meta?.timeBars || scalp.MODEL.cfg.T);
+      if (bars && pos.price != null && Date.now() - pos.openedAt > bars * BAR * 1000) {
         acct.close(pos.id, pos.price, `TIME ${Math.round((bars * BAR) / 3600)}h`);
         st.cool[pos.symbol] = Date.now();
       }
@@ -203,10 +205,12 @@ async function tick(force = false) {
       const digits = INSTRUMENTS[s].digits;
       const price = +(deps.livePrice(s, 60_000) ?? pr.price).toFixed(digits);
       const d = pr.best === 'BUY' ? 1 : -1;
-      const { tp, sl } = scalp.MODEL.cfg;
+      const { tp, sl } = STYLES[st.settings.style] || STYLES.quick;
       const stop = +(price - d * sl * pr.atr).toFixed(digits), target = +(price + d * tp * pr.atr).toFixed(digits);
       const eq = account().equity;
-      const wantRisk = eq * (st.settings.riskPct / 100);
+      const lastT = botTrades()[0];
+      const recov = st.settings.recovery && lastT && lastT.pnl < 0 ? 1.5 : 1; // safe recovery: after a loss risk ×1.5 once, back to normal after
+      const wantRisk = eq * (st.settings.riskPct / 100) * recov;
       let size = positionSize(s, price, stop, wantRisk);
       if (size && !(size.lots > 0)) {
         // $1000 account: 0.01 lot (the smallest lot) can risk a bit more than 1% on wide-ATR markets (Gold). Allow up to 2× the target.
@@ -219,7 +223,7 @@ async function tick(force = false) {
       const inst = INSTRUMENTS[s];
       const costUSD = toUSD(s, inst.cost * size.lots * inst.contractSize, price);
       const pos = acct.open({ symbol: s, side: pr.best, lots: size.lots, stopLoss: stop, takeProfit: target, price, costUSD,
-        note: `Bot · score ${pr.score.toFixed(2)}`, meta: { bot: true, score: +pr.score.toFixed(3), why: pr.why, timeBars: scalp.MODEL.cfg.T, riskUSD: size.riskUSD } });
+        note: `Bot · score ${pr.score.toFixed(2)}`, meta: { bot: true, score: +pr.score.toFixed(3), why: pr.why, timeBars: (STYLES[st.settings.style] || STYLES.quick).timeBars, recovery: recov > 1, riskUSD: size.riskUSD } });
       openSet.add(s);
       log(`#${pos.id} ${s} ${pr.best} ${size.lots} lots @ ${price} · SL ${stop} · TP ${target} · risk $${size.riskUSD} — ${pr.why}`, 'open', s);
     }
@@ -281,6 +285,8 @@ function stop(reason = 'ඔයා Stop කළා') {
 }
 function settings(s) {
   if (s.riskPct != null) st.settings.riskPct = Math.min(3, Math.max(0.25, +s.riskPct));
+  if (s.style && STYLES[s.style]) st.settings.style = s.style;
+  if (s.recovery != null) st.settings.recovery = !!s.recovery;
   if (s.level) { const L = ALL_LEVELS.find((x) => x.key === s.level); if (L) { st.settings.level = L.key; st.settings.threshold = L.thr; } }
   log(`Settings: risk ${st.settings.riskPct}% · ${ALL_LEVELS.find((l) => l.key === st.settings.level)?.name}`, 'info'); save();
   return status();
