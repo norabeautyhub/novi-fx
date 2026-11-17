@@ -205,7 +205,15 @@ async function tick(force = false) {
       const { tp, sl } = scalp.MODEL.cfg;
       const stop = +(price - d * sl * pr.atr).toFixed(digits), target = +(price + d * tp * pr.atr).toFixed(digits);
       const eq = account().equity;
-      const size = positionSize(s, price, stop, eq * (st.settings.riskPct / 100));
+      const wantRisk = eq * (st.settings.riskPct / 100);
+      let size = positionSize(s, price, stop, wantRisk);
+      if (size && !(size.lots > 0)) {
+        // $1000 account: 0.01 lot (the smallest lot) can risk a bit more than 1% on wide-ATR markets (Gold). Allow up to 2× the target.
+        const one = positionSize(s, price, stop, 1e9), unit = INSTRUMENTS[s].type === 'crypto' ? 0.001 : 0.01;
+        const riskMin = one ? +(unit * (one.riskUSD / one.lots)).toFixed(2) : Infinity;
+        if (riskMin <= wantRisk * 2) size = { ...one, lots: unit, riskUSD: riskMin };
+        else { st.scan[s].skip = `lot too small (min lot risk $${riskMin} > 2×$${wantRisk.toFixed(0)})`; st.lastSkip = `${s} ${pr.best} score ${pr.score.toFixed(3)} — ${st.scan[s].skip}`; continue; }
+      }
       if (!size || !(size.lots > 0)) { st.scan[s].skip = 'lot too small'; continue; }
       const inst = INSTRUMENTS[s];
       const costUSD = toUSD(s, inst.cost * size.lots * inst.contractSize, price);
