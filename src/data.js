@@ -125,10 +125,11 @@ function demoCandles(symbol, tf, limit) {
 
 // Twelve Data free plan: 8 requests/minute. Keep our own count so we fail clearly.
 const tdCalls = [];
-function tdThrottle() {
+function tdThrottle(reserve = 0) {
   const now = Date.now();
   while (tdCalls.length && now - tdCalls[0] > 60_000) tdCalls.shift();
-  const max = +(process.env.TWELVEDATA_PER_MIN || 8);
+  // background jobs (bot, scans) leave `reserve` calls/min free so the chart always loads
+  const max = +(process.env.TWELVEDATA_PER_MIN || 8) - reserve;
   if (tdCalls.length >= max) {
     const wait = Math.ceil((60_000 - (now - tdCalls[0])) / 1000);
     throw new Error(`Twelve Data limit (${max}/min) — තත්පර ${wait} කින් ආයෙත් try කරන්න`);
@@ -140,7 +141,7 @@ function tdThrottle() {
 async function tdWait(maxWaitMs = 75_000) {
   const until = Date.now() + maxWaitMs;
   for (;;) {
-    try { return tdThrottle(); } catch (e) {
+    try { return tdThrottle(3); } catch (e) {
       if (Date.now() > until) throw e;
       await new Promise((r) => setTimeout(r, 2000));
     }

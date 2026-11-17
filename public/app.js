@@ -1114,9 +1114,14 @@ function selectSymbol(s) {
   applyPrecision(); renderWatchlist(); refreshAll(true);
 }
 
+let chartRetry = null;
 async function refreshAll(fit) {
+  clearTimeout(chartRetry);
   try { await loadChart(fit); await loadSignal(); }
-  catch (e) { $('sigBody').innerHTML = `<span class="neg">${e.message}</span>`; }
+  catch (e) {
+    $('sigBody').innerHTML = `<span class="neg">${e.message}</span><br><span class="small muted">තත්පර 10කින් chart එක ආයෙත් load කරනවා…</span>`;
+    chartRetry = setTimeout(() => refreshAll(fit), 10_000); // e.g. Twelve Data limit → try again soon
+  }
   if (fit) loadMtf();
 }
 
