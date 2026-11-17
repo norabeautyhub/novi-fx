@@ -1169,7 +1169,7 @@ function renderBot(b) {
   $('botTop').innerHTML = `<div class="bot-bar">
       ${chip}
       ${b.running ? '<button class="sm danger" id="botStop">⏹ Stop</button>' : '<button class="sm" id="botStart">▶ Start</button>'}
-      <label class="small">Trades: <select id="botLevel">${(b.levels || []).map((l) => `<option value="${l.key}" ${b.settings.level === l.key ? 'selected' : ''}>${l.name} (~${l.research.perDay}/දවස)</option>`).join('')}</select></label>
+      <label class="small">Trades: <select id="botLevel">${(b.levels || []).map((l) => `<option value="${l.key}" ${b.settings.level === l.key ? 'selected' : ''}>${l.name} · research PF ${l.research.pf}</option>`).join('')}</select></label>
       <label class="small">Risk: <select id="botRisk">${[0.5, 1, 2].map((r) => `<option value="${r}" ${+b.settings.riskPct === r ? 'selected' : ''}>${r}% / trade</option>`).join('')}</select></label>
       ${!b.running ? '<button class="sm ghost" id="botReset">Account reset ($1,000)</button>' : ''}
     </div>
@@ -1201,14 +1201,16 @@ function renderBot(b) {
 
   const age = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`; };
   const posT = b.positions.length ? `<table><tr><th>#</th><th>Market</th><th>Side</th><th>Lots</th><th>Entry</th><th>මිල</th><th>SL</th><th>TP</th><th>P&L</th><th>කාලය</th><th></th></tr>
-    ${b.positions.map((x) => `<tr><td>${x.id}</td><td>${x.symbol}</td><td class="${x.side === 'BUY' ? 'pos' : 'neg'}">${x.side}</td><td>${x.lots}</td><td class="mono">${fmt(x.entry, x.symbol)}</td><td class="mono">${fmt(x.price, x.symbol)}</td><td class="mono">${fmt(x.stopLoss, x.symbol)}</td><td class="mono">${fmt(x.takeProfit, x.symbol)}</td><td class="mono ${cls(x.pnl)}">${money(x.pnl)}</td><td class="small">${age(x.openedAt)}</td><td><button class="sm ghost" data-bclose="${x.id}">Close</button></td></tr>`).join('')}</table>`
-    : `<div class="small muted">දැන් open orders නැහැ.${b.running ? ' Bot එක හැම 15m candle එකක්ම close වෙද්දි markets 12 check කරනවා.' : ''}</div>`;
+    ${b.positions.map((x) => `<tr title="${esc(x.meta?.why || '')}"><td>${x.id}</td><td>${x.symbol}</td><td class="${x.side === 'BUY' ? 'pos' : 'neg'}">${x.side}</td><td>${x.lots}</td><td class="mono">${fmt(x.entry, x.symbol)}</td><td class="mono">${fmt(x.price, x.symbol)}</td><td class="mono">${fmt(x.stopLoss, x.symbol)}</td><td class="mono">${fmt(x.takeProfit, x.symbol)}</td><td class="mono ${cls(x.pnl)}">${money(x.pnl)}</td><td class="small">${age(x.openedAt)}</td><td><button class="sm ghost" data-bclose="${x.id}">Close</button></td></tr>`).join('')}</table>`
+    : `<div class="small muted">දැන් open orders නැහැ.${b.running ? ' හොඳ අවස්ථාවක් ආපු ගමන් bot එක order එක දානවා.' : ''}</div>`;
 
-  const sc = (v) => v == null ? '—' : `<span class="${v > (b.settings.threshold ?? 0) ? 'pos' : 'muted'}">${v.toFixed(2)}</span>`;
-  const mk = `<table><tr><th>Market</th><th>BUY score</th><th>SELL score</th><th>අන්තිම තීරණය</th><th>Trades</th><th>Win</th><th>P&L</th></tr>
-    ${b.markets.map((m) => `<tr><td>${m.live ? '🟢' : '⚪'} ${m.symbol}</td><td class="mono">${sc(m.scan?.buy)}</td><td class="mono">${sc(m.scan?.sell)}</td>
-      <td class="small">${m.paused ? `⏸ ${esc(m.paused)} <button class="sm ghost" data-bunp="${m.symbol}">On</button>` : esc(m.scan?.decision || m.scan?.note || '—')}${m.scan?.t ? ` <span class="muted">· ${age(m.scan.t)} කලින්</span>` : ''}</td>
-      <td>${m.trades || ''}</td><td>${m.winRate != null ? m.winRate + '%' : ''}</td><td class="mono ${cls(m.pnl)}">${m.trades ? money(m.pnl) : ''}</td></tr>`).join('')}</table>`;
+  const SC = b.scanning || {};
+  const scanLine = b.running
+    ? `<div class="bot-scan">${SC.ready ? `<span class="pulse"></span> Markets <b>${SC.ready}/${SC.total}</b> හැම විනාඩියකම analyse කරනවා · අන්තිම check එක <b>${SC.lastCheck ? new Date(SC.lastCheck).toLocaleTimeString('en-GB') : '—'}</b>` : '⏳ Market data load කරනවා (පළමු වතාවට විනාඩි 2–3ක්)…'}${SC.loading && SC.ready ? ' · <span class="muted">data update වෙනවා</span>' : ''}</div>`
+    : '';
+  const pausedL = Object.entries(b.paused || {});
+  const pausedLine = pausedL.length ? `<div class="small">⏸ Pause කරපු markets: ${pausedL.map(([s, w]) => `<b>${s}</b> <span class="muted">(${esc(w)})</span> <button class="sm ghost" data-bunp="${s}">On</button>`).join(' · ')}</div>` : '';
+  const mk = scanLine + pausedLine;
 
   const ICON = { open: '🟦', win: '✅', loss: '❌', close: '⏱', pause: '⏸', stop: '⏹', start: '▶', error: '⚠️', info: 'ⓘ' };
   const lg = b.log.length ? `<ul class="ev bot-log">${b.log.slice(0, 60).map((l) => `<li><span class="muted">${dt(l.t)}</span> ${ICON[l.type] || ''} ${esc(l.msg)}</li>`).join('')}</ul>` : '<div class="small muted">—</div>';
@@ -1219,19 +1221,19 @@ function renderBot(b) {
   const R = b.model.research, cfg = b.model.cfg;
   const info = `<details class="bot-info"><summary>ⓘ Bot එක වැඩ කරන විදිහ සහ research ප්‍රතිඵල</summary>
     <ul class="small">
-      <li><b>Model:</b> LightGBM, ${esc(b.model.trainedOn)}. හැම 15m candle එකක්ම close වෙද්දි markets 12 ම BUY සහ SELL දෙකටම "ලාභ වෙයිද" කියලා score එකක් දෙනවා. Score එක level එකට වඩා වැඩි නම් order එකක් දානවා.</li>
-      <li><b>Order:</b> SL = ATR × ${cfg.sl}, TP = ATR × ${cfg.tp}. පැය 8ක් ඇතුළත TP/SL නොවදුණොත් close කරනවා. Spread cost එකත් P&L එකෙන් අඩු කරනවා.</li>
+      <li><b>Model:</b> LightGBM, ${esc(b.model.trainedOn)} — indicators (EMA, RSI, Stochastic, Williams %R, CCI, MACD, ADX, Supertrend, Bollinger, Donchian, ATR), candlestick patterns (Engulfing, Hammer/Shooting star, Morning/Evening star, Doji, Inside bar, wicks) සහ 1h/4h trend. <b>හැම විනාඩියකම</b> markets 12 ම එකවර analyse කරලා (අන්තිම විනාඩි 15 candle එක), BUY/SELL "ලාභ වෙයිද" score එක level එකට වඩා වැඩි නම් order එක දානවා.</li>
+      <li><b>Order:</b> SL = ATR × ${cfg.sl}, TP = ATR × ${cfg.tp}. පැය ${Math.round(cfg.T / 4)}ක් ඇතුළත TP/SL නොවදුණොත් close කරනවා. Order එකක් close වුණාම ඒ market එකේ විනාඩි 15ක් ඉඳලා ඊළඟ එක. Spread cost එකත් P&L එකෙන් අඩු කරනවා.</li>
       <li><b>Lot size:</b> හැම order එකකටම equity එකෙන් ${b.settings.riskPct}% risk. SL දුර අනුව lot එක bot එකම හදනවා. Loss එකකින් පස්සේ lot එක වැඩි කරන්නේ නැහැ.</li>
       <li><b>ආරක්ෂාව:</b> open orders උපරිම ${b.rules.maxOpen}, එකම currency එකට ${b.rules.maxPerCurrency}, market එකකට 1 · ලොකු news එකට විනාඩි ${b.rules.newsMin}ක් ඉස්සර/පස්සේ orders නැහැ · අද −${b.rules.dayLossPct}% → හෙට වෙනකම් pause · account −${b.rules.maxDDPct}% → stop · අන්තිම trades ${b.rules.pauseAfter} PF ${b.rules.pausePF} ට අඩු market එක pause.</li>
       <li><b>Research (නොදැකපු අවුරුදු 2016–2018):</b> ${(b.levels || []).map((l) => `${l.name}: දවසට ~${l.research.perDay} · win ${l.research.wr}% · PF ${l.research.pf} · ${l.research.years}`).join(' &nbsp;|&nbsp; ')}. Train නොකරපු (හැම signal එකම ගන්න) bot එක: win ${R.untrained.wr}% · PF ${R.untrained.pf} (පාඩු).</li>
-      <li>⚠️ Paper account එක ($1,000 බොරු සල්ලි). Bot එක වැඩ කරන්නේ <code>npm start</code> run වෙනකම් විතරයි — PC එක sleep වුණොත් නවතිනවා. Crypto තාම train කරලා නැති නිසා bot එකට නැහැ.</li>
+      <li>⚠️ Paper account එක ($1,000 බොරු සල්ලි). Bot එක වැඩ කරන්නේ <code>npm start</code> run වෙනකම් විතරයි — PC එක sleep වුණොත් නවතිනවා. Crypto තාම train කරලා නැති නිසා bot එකට නැහැ. Research එක 15m candles වල — හැම විනාඩියකම check කරන නිසා ඇත්ත trades ගණන research එකට වඩා වැඩි වෙයි.</li>
     </ul></details>`;
 
-  $('botBody').innerHTML = `${info}
+  $('botBody').innerHTML = `${mk}
     <div class="bt-h">📂 Open orders (${b.positions.length})</div>${posT}
-    <div class="bt-h">📡 Markets — අන්තිම scan එක</div>${mk}
-    <div class="bt-h">📝 Bot log</div>${lg}
-    <div class="bt-h">📜 Close වුණු trades</div>${hi}`;
+    <div class="bt-h">📜 Close වුණු trades</div>${hi}
+    <div class="bt-h">📝 Bot log (orders විතරයි)</div>${lg}
+    ${info}`;
   document.querySelectorAll('[data-bclose]').forEach((x) => (x.onclick = () => botCall('/close', { id: +x.dataset.bclose })));
   document.querySelectorAll('[data-bunp]').forEach((x) => (x.onclick = () => botCall('/unpause', { symbol: x.dataset.bunp })));
 }

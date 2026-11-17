@@ -52,3 +52,16 @@ So the app shows the partner only as information (Deep Analysis), never as a fil
    | 0.20 | 0.5 | 55% | 1.31 | +66 | 3/3 |
 3. The final model (trained on all 4 years) outputs smaller numbers → thresholds matched by selection rate (`calib.py`): 0.004 / 0.040 / 0.078.
 4. JS inference `src/scalpModel.js` matches Python exactly (features rel. diff < 1e-10, predictions identical).
+
+## Model v2 — `scalp_ml2.py`, `scalp_export2.py` (57 inputs)
+Added: Stochastic, Williams %R, CCI, EMA 9/21 cross, Bollinger width, Supertrend, Donchian 55, MACD line, ATR 7/28,
+1h/4h proxies (RSI 56/224, ADX 56, EMA 800, EMA200 slope), last-24h high/low, candlestick patterns
+(engulfing, hammer/shooting star, morning/evening star, inside bar, doji, wicks, body ratio, same-colour runs).
+Walk-forward 2016–2018, same trades/day (TP 1.5×ATR, SL 1×ATR, 8h):
+| trades/day | v1 PF / net | v2 PF / net | v2 years |
+|---|---|---|---|
+| 0.5 | 1.32 / +69R | 1.34 / +74R | 3/3 |
+| 1 | 1.11 / +48R | **1.32 / +128R** | 3/3 |
+| 2 | 1.01 / +11R | 1.08 / +78R | 2/3 |
+| 3 | 0.94 / −94R | 0.99 / −15R | 1/3 |
+Bot now checks every minute on a rolling 15m candle (built from 1m data).

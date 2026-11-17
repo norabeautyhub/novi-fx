@@ -5,8 +5,8 @@
 
 const { INSTRUMENTS } = require('./instruments');
 
-const BINANCE_TF = { '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d' };
-const TD_TF = { '5m': '5min', '15m': '15min', '1h': '1h', '4h': '4h', '1d': '1day' };
+const BINANCE_TF = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d' };
+const TD_TF = { '1m': '1min', '5m': '5min', '15m': '15min', '1h': '1h', '4h': '4h', '1d': '1day' };
 // How long candles stay cached per provider (ms). Twelve Data free plan is 8 calls/min.
 const CACHE_MS = { binance: 5_000, twelvedata: 60_000 };
 
@@ -101,7 +101,7 @@ async function fromTwelveData(inst, tf, limit) {
 }
 
 // DATA_MODE=demo → synthetic random-walk candles (for testing without internet/API keys)
-const TF_SEC = { '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
+const TF_SEC = { '1m': 60, '5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400 };
 const BASE = { XAUUSD: 2400, EURUSD: 1.08, GBPUSD: 1.27, AUDUSD: 0.66, USDJPY: 150, USDCAD: 1.36, USDCHF: 0.88, BTCUSDT: 65000, ETHUSDT: 3200, SOLUSDT: 150, XAGUSD: 30, GBPJPY: 195, EURJPY: 165, NZDUSD: 0.6, EURGBP: 0.85, XRPUSDT: 2.2, BNBUSDT: 650 };
 function demoCandles(symbol, tf, limit) {
   let seed = [...(symbol + tf)].reduce((a, ch) => a * 31 + ch.charCodeAt(0), 7) >>> 0;
