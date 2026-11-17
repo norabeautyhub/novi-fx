@@ -34,6 +34,8 @@ const ACTIVE = { key: 'active', name: '♾ Always Active (නවත්වන්�
 const FORCE = { key: 'force', name: '🔁 Force — හැම විටම trade (score ඍණ වුණත්)', thr: -9, research: { perDay: 'ගොඩක් (slot එක නිදහස් වුණු ගමන්)', wr: '—', pf: '<1 (පාඩු බලාපොරොත්තු වෙන්න)', years: 'Paper එකේ විතරක් — research එකේ ඍණයි' } };
 const ALL_LEVELS = [FORCE, ACTIVE, ...scalp.MODEL.levels];
 const DEFAULTS = { riskPct: 1, level: 'force', threshold: -9, style: 'fast', recovery: true, v4: true, v5: true };
+const MAX_LOSS_USD = 5;      // fast style: a trade never loses more than this (cost included)
+const FAST_HOLD_MIN = 1;     // fast style: close after 1 minute at market price
 const STYLES = { fast: { tp: 0.4, sl: 0.4, timeBars: 3 }, quick: { tp: 0.5, sl: 1.0, timeBars: 3 } /* 3×15m = 45 min max hold: a trade that gets stuck between TP and SL is closed so the bot keeps trading */, model: { ...scalp.MODEL.cfg, timeBars: scalp.MODEL.cfg.T } };
 
 let deps = null;
@@ -157,6 +159,9 @@ async function tick(force = false) {
     for (const pos of A.positions) {
       let bars = pos.meta && pos.meta.timeBars === 0 ? 0 : (pos.meta?.timeBars || scalp.MODEL.cfg.T);
       if (st.settings.style !== 'model') bars = Math.min(bars || 99, STYLES.fast.timeBars); // quick style: also applies to older open orders
+      if (st.settings.style === 'fast' && pos.price != null && Date.now() - pos.openedAt >= FAST_HOLD_MIN * 60e3) {
+        acct.close(pos.id, pos.price, `TIME ${FAST_HOLD_MIN}min`); continue;
+      }
       if (bars && pos.price != null && Date.now() - pos.openedAt > bars * BAR * 1000) {
         acct.close(pos.id, pos.price, `TIME ${Math.round((bars * BAR) / 60)}min`);
         st.cool[pos.symbol] = Date.now();
@@ -232,6 +237,13 @@ async function tick(force = false) {
       }
       if (!size || !(size.lots > 0)) { st.scan[s].skip = 'lot too small'; continue; }
       const inst = INSTRUMENTS[s];
+      if (st.settings.style === 'fast') {
+        const unit = inst.type === 'crypto' ? 0.001 : 0.01;
+        const perLot = size.riskUSD / size.lots + toUSD(s, inst.cost * inst.contractSize, price); // SL loss + cost for 1 lot
+        const lots = Math.floor(MAX_LOSS_USD / perLot / unit) * unit;
+        if (!(lots > 0)) { st.scan[s].skip = `$${MAX_LOSS_USD} loss limit — min lot එකටත් වැඩියි`; st.lastSkip = `${s} — ${st.scan[s].skip}`; continue; }
+        if (lots < size.lots) size = { ...size, lots: +lots.toFixed(3), riskUSD: +(lots * (size.riskUSD / size.lots)).toFixed(2) };
+      }
       const costUSD = toUSD(s, inst.cost * size.lots * inst.contractSize, price);
       const pos = acct.open({ symbol: s, side: pr.best, lots: size.lots, stopLoss: stop, takeProfit: target, price, costUSD,
         note: `Bot · score ${pr.score.toFixed(2)}`, meta: { bot: true, score: +pr.score.toFixed(3), why: pr.why, timeBars: (STYLES[st.settings.style] || STYLES.fast).timeBars, recovery: recov > 1, style: st.settings.style, riskUSD: size.riskUSD } });
@@ -255,6 +267,12 @@ async function tick(force = false) {
 
 // log closes made by the live SL/TP check (+ cooldown)
 let knownHist = null;
+function lossGuard() {
+  if (st.settings.style !== 'fast') return;
+  for (const pos of account().positions) {
+    if (pos.price != null && pos.pnl != null && pos.pnl <= -MAX_LOSS_USD) { acct.close(pos.id, pos.price, `LOSS $${MAX_LOSS_USD}`); log(`#${pos.id} ${pos.symbol} −$${MAX_LOSS_USD} සීමාවට ආවා — close කළා`, 'close', pos.symbol); }
+  }
+}
 function watchCloses() {
   const h = acct.raw().history;
   if (knownHist == null) { knownHist = new Set(h.map((x) => x.id + '|' + x.closedAt)); return; }
@@ -276,7 +294,7 @@ function init(d) {
     onTick(t);
     if (openSet.has(t.s) && Date.now() - (lastMark[t.s] || 0) >= 1000) { lastMark[t.s] = Date.now(); try { acct.mark({ [t.s]: t.p }); } catch {} }
   });
-  setInterval(() => { try { refreshOpen(); watchCloses(); } catch {} }, 2000);
+  setInterval(() => { try { lossGuard(); refreshOpen(); watchCloses(); } catch {} }, 2000);
   setInterval(() => tick(), 5000);          // runs once per new minute
   setInterval(saveCache, 5 * 60e3);
   if (st.running) { log('Server restart — bot එක ආයෙත් පටන් ගත්තා', 'start'); save(); seedLoop().catch(() => {}); }
