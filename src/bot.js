@@ -30,7 +30,9 @@ const acct = makeAccount('bot-paper.json', 1000);
 const BAR = 900;
 const MARKETS = scalp.MODEL.pairs;
 const RULES = { maxOpen: 4, maxPerCurrency: 2, newsMin: 30, dayLossPct: 4, maxDDPct: 20, pausePF: 0.8, pauseAfter: 30, cooldownMin: 15, resyncMs: 3 * 3600e3 };
-const DEFAULTS = { riskPct: 1, level: 'normal', threshold: scalp.MODEL.threshold };
+const ACTIVE = { key: 'active', name: '♾ Always Active (නවත්වන්නේ නැතුව)', thr: 0, research: { perDay: 'සීමාවක් නැහැ', wr: '—', pf: '~1.0–1.1', years: 'මැනලා නැහැ — paper එකේ බලන්න' } };
+const ALL_LEVELS = [ACTIVE, ...scalp.MODEL.levels];
+const DEFAULTS = { riskPct: 1, level: 'active', threshold: 0, v3: true };
 
 let deps = null;
 let st = loadState();
@@ -40,7 +42,7 @@ const lastMark = {};
 let openSet = new Set();
 
 function loadState() {
-  try { const x = { ...defaultState(), ...JSON.parse(fs.readFileSync(FILE, 'utf8')) }; x.settings = { ...DEFAULTS, ...x.settings }; const L = scalp.MODEL.levels.find((l) => l.key === x.settings.level); if (L) x.settings.threshold = L.thr; return x; }
+  try { const x = { ...defaultState(), ...JSON.parse(fs.readFileSync(FILE, 'utf8')) }; x.settings = { ...DEFAULTS, ...x.settings }; if (!x.settings.v3) { x.settings.level = 'active'; x.settings.v3 = true; } const L = ALL_LEVELS.find((l) => l.key === x.settings.level); if (L) x.settings.threshold = L.thr; return x; }
   catch { return defaultState(); }
 }
 function defaultState() { return { running: false, startedAt: null, stoppedReason: null, settings: { ...DEFAULTS }, day: null, paused: {}, scan: {}, cool: {}, lastCheck: null, checks: 0, log: [] }; }
@@ -167,7 +169,7 @@ async function tick(force = false) {
 
     // 1) score every ready market (fast, no waiting)
     const cands = [];
-    let readyN = 0;
+    let readyN = 0, bestNow = null;
     for (const s of MARKETS) {
       if (!ready(s)) { st.scan[s] = { t: Date.now(), note: C[s] ? 'data update වෙනවා / market වහලා' : 'data load වෙනවා' }; continue; }
       readyN++;
@@ -177,8 +179,9 @@ async function tick(force = false) {
       if (!pr) continue;
       st.scan[s] = { t: Date.now(), buy: +pr.long.toFixed(3), sell: +pr.short.toFixed(3), best: pr.best, score: +pr.score.toFixed(3) };
       if (pr.score > st.settings.threshold) cands.push({ s, pr });
+      if (!bestNow || pr.score > bestNow.score) bestNow = { s, score: +pr.score.toFixed(3), side: pr.best };
     }
-    st.lastCheck = Date.now(); st.checks = (st.checks || 0) + 1; st.readyN = readyN;
+    st.lastCheck = Date.now(); st.checks = (st.checks || 0) + 1; st.readyN = readyN; st.bestNow = bestNow;
 
     // 2) best opportunities first
     cands.sort((a, b) => b.pr.score - a.pr.score);
@@ -195,7 +198,7 @@ async function tick(force = false) {
         if (nb) return `news ${nb.country} ${nb.title}`;
         return null;
       })();
-      if (why) { st.scan[s].skip = why; continue; }
+      if (why) { st.scan[s].skip = why; st.lastSkip = `${s} ${pr.best} score ${pr.score.toFixed(3)} — ${why}`; continue; }
       const digits = INSTRUMENTS[s].digits;
       const price = +(deps.livePrice(s, 60_000) ?? pr.price).toFixed(digits);
       const d = pr.best === 'BUY' ? 1 : -1;
@@ -258,7 +261,7 @@ function start() {
   if (st.running) return status();
   st.running = true; st.startedAt = Date.now(); st.stoppedReason = null; st.paused = {};
   if (!fs.existsSync(path.join(DATA, 'bot-paper.json'))) acct.reset(1000);
-  log(`▶ Bot start — risk ${st.settings.riskPct}% · ${scalp.MODEL.levels.find((l) => l.key === st.settings.level)?.name || ''} · markets ${MARKETS.length} · හැම විනාඩියකම check කරනවා`, 'start');
+  log(`▶ Bot start — risk ${st.settings.riskPct}% · ${ALL_LEVELS.find((l) => l.key === st.settings.level)?.name || ''} · markets ${MARKETS.length} · හැම විනාඩියකම check කරනවා`, 'start');
   save(); seedLoop().catch(() => {}); setTimeout(() => tick(true), 300);
   return status();
 }
@@ -269,8 +272,8 @@ function stop(reason = 'ඔයා Stop කළා') {
 }
 function settings(s) {
   if (s.riskPct != null) st.settings.riskPct = Math.min(3, Math.max(0.25, +s.riskPct));
-  if (s.level) { const L = scalp.MODEL.levels.find((x) => x.key === s.level); if (L) { st.settings.level = L.key; st.settings.threshold = L.thr; } }
-  log(`Settings: risk ${st.settings.riskPct}% · ${scalp.MODEL.levels.find((l) => l.key === st.settings.level)?.name}`, 'info'); save();
+  if (s.level) { const L = ALL_LEVELS.find((x) => x.key === s.level); if (L) { st.settings.level = L.key; st.settings.threshold = L.thr; } }
+  log(`Settings: risk ${st.settings.riskPct}% · ${ALL_LEVELS.find((l) => l.key === st.settings.level)?.name}`, 'info'); save();
   return status();
 }
 function resetAccount(balance = 1000) {
@@ -299,14 +302,14 @@ function status() {
   const wins = hist.filter((h) => h.pnl > 0).length;
   return {
     running: st.running, startedAt: st.startedAt, stoppedReason: st.stoppedReason, settings: st.settings, rules: RULES, dayPaused: !!st.day?.paused,
-    scanning: { lastCheck: st.lastCheck, ready: MARKETS.filter(ready).length, total: MARKETS.length, checks: st.checks || 0, loading: seeding },
+    scanning: { lastCheck: st.lastCheck, ready: MARKETS.filter(ready).length, total: MARKETS.length, checks: st.checks || 0, loading: seeding, best: st.bestNow || null, lastSkip: st.lastSkip || null, candidates: Object.values(st.scan).filter((x) => x.score != null && x.score > st.settings.threshold).length },
     account: { balance: A.balance, equity: A.equity, floating: A.floating, start: A.startBalance, total: +(A.equity - A.startBalance).toFixed(2) },
     stats: { trades: hist.length, wins, winRate: hist.length ? +((wins / hist.length) * 100).toFixed(1) : null, pf: hist.length ? +pf(hist.map((h) => h.pnl)).toFixed(2) : null,
       today: { trades: todayH.length, pnl: +todayH.reduce((a, h) => a + h.pnl, 0).toFixed(2) } },
     byMarket: Object.entries(per).map(([s, p]) => ({ symbol: s, trades: p.n, winRate: +((p.wins / p.n) * 100).toFixed(1), pnl: +p.pnl.toFixed(2), paused: st.paused[s] || null })).sort((a, b) => b.pnl - a.pnl),
     paused: st.paused,
     positions: A.positions, history: hist.slice(0, 100), log: st.log.filter((l) => l.type !== 'info' || /reset|Settings|on කළා/.test(l.msg)).slice(0, 150), curve,
-    model: { version: scalp.MODEL.version, trainedOn: scalp.MODEL.trainedOn, cfg: scalp.MODEL.cfg, research: scalp.MODEL.research, nFeatures: scalp.MODEL.nFeatures }, levels: scalp.MODEL.levels,
+    model: { version: scalp.MODEL.version, trainedOn: scalp.MODEL.trainedOn, cfg: scalp.MODEL.cfg, research: scalp.MODEL.research, nFeatures: scalp.MODEL.nFeatures }, levels: ALL_LEVELS,
   };
 }
 
