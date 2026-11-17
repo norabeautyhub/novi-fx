@@ -34,7 +34,7 @@ const ACTIVE = { key: 'active', name: '♾ Always Active (නවත්වන්�
 const FORCE = { key: 'force', name: '🔁 Force — හැම විටම trade (score ඍණ වුණත්)', thr: -9, research: { perDay: 'ගොඩක් (slot එක නිදහස් වුණු ගමන්)', wr: '—', pf: '<1 (පාඩු බලාපොරොත්තු වෙන්න)', years: 'Paper එකේ විතරක් — research එකේ ඍණයි' } };
 const ALL_LEVELS = [FORCE, ACTIVE, ...scalp.MODEL.levels];
 const DEFAULTS = { riskPct: 1, level: 'force', threshold: -9, style: 'quick', recovery: true, v4: true };
-const STYLES = { quick: { tp: 0.5, sl: 1.0, timeBars: 0 }, model: { ...scalp.MODEL.cfg, timeBars: scalp.MODEL.cfg.T } };
+const STYLES = { quick: { tp: 0.5, sl: 1.0, timeBars: 3 } /* 3×15m = 45 min max hold: a trade that gets stuck between TP and SL is closed so the bot keeps trading */, model: { ...scalp.MODEL.cfg, timeBars: scalp.MODEL.cfg.T } };
 
 let deps = null;
 let st = loadState();
@@ -155,9 +155,10 @@ async function tick(force = false) {
     seedLoop().catch(() => {});
     let A = account();
     for (const pos of A.positions) {
-      const bars = pos.meta && pos.meta.timeBars === 0 ? 0 : (pos.meta?.timeBars || scalp.MODEL.cfg.T);
+      let bars = pos.meta && pos.meta.timeBars === 0 ? 0 : (pos.meta?.timeBars || scalp.MODEL.cfg.T);
+      if (st.settings.style !== 'model') bars = Math.min(bars || 99, STYLES.quick.timeBars); // quick style: also applies to older open orders
       if (bars && pos.price != null && Date.now() - pos.openedAt > bars * BAR * 1000) {
-        acct.close(pos.id, pos.price, `TIME ${Math.round((bars * BAR) / 3600)}h`);
+        acct.close(pos.id, pos.price, `TIME ${Math.round((bars * BAR) / 60)}min`);
         st.cool[pos.symbol] = Date.now();
       }
     }

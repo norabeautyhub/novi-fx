@@ -1176,7 +1176,7 @@ function renderBot(b) {
       ${chip}
       ${b.running ? '<button class="sm danger" id="botStop">⏹ Stop</button>' : '<button class="sm" id="botStart">▶ Start</button>'}
       <label class="small">Trades: <select id="botLevel">${(b.levels || []).map((l) => `<option value="${l.key}" ${b.settings.level === l.key ? 'selected' : ''}>${l.name} · research PF ${l.research.pf}</option>`).join('')}</select></label>
-      <label class="small">Style: <select id="botStyle"><option value="quick" ${b.settings.style !== 'model' ? 'selected' : ''}>Quick — TP 0.5 / SL 1 ATR · time stop නැහැ</option><option value="model" ${b.settings.style === 'model' ? 'selected' : ''}>Model — TP 1.5 / SL 1 · පැය 8</option></select></label>
+      <label class="small">Style: <select id="botStyle"><option value="quick" ${b.settings.style !== 'model' ? 'selected' : ''}>Quick — TP 0.5 / SL 1 ATR · උපරිම විනාඩි 45</option><option value="model" ${b.settings.style === 'model' ? 'selected' : ''}>Model — TP 1.5 / SL 1 · පැය 8</option></select></label>
       <label class="small"><input type="checkbox" id="botRecov" ${b.settings.recovery ? 'checked' : ''} style="width:auto"> පාඩුවෙන් පස්සේ risk ×1.5 (එක් වරක්)</label>
       <label class="small">Risk: <select id="botRisk">${[0.5, 1, 2].map((r) => `<option value="${r}" ${+b.settings.riskPct === r ? 'selected' : ''}>${r}% / trade</option>`).join('')}</select></label>
       ${!b.running ? '<button class="sm ghost" id="botReset">Account reset ($1,000)</button>' : ''}
