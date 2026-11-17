@@ -76,7 +76,8 @@ async function seedOne(s) {
   cur.c15 = mergeInto(cur.c15, c15, 2000);
   // 1-minute candles (for the every-minute rolling candle) — only when we don't have recent ones
   const m1last = cur.m1.length ? cur.m1[cur.m1.length - 1].time : 0;
-  if (Date.now() / 1000 - m1last > 1800) { try { cur.m1 = mergeInto(cur.m1, await deps.getCandles(s, '1m', 300, 0, true), 300); } catch {} }
+  const m1first = cur.m1.length ? cur.m1[0].time : Infinity;
+  if (Date.now() / 1000 - m1last > 1800 || Date.now() / 1000 - m1first < 2 * BAR) { try { cur.m1 = mergeInto(cur.m1, await deps.getCandles(s, '1m', 300, 0, true), 300); } catch {} }
   cur.seededAt = Date.now();
   C[s] = cur;
 }
@@ -88,7 +89,8 @@ async function seedLoop() {
     // freshest-needed first: missing → stale → due for refresh
     const need = MARKETS.filter((s) => !(failedAt[s] && Date.now() - failedAt[s] < 10 * 60e3))
       .map((s) => ({ s, age: C[s] ? Date.now() - (C[s].seededAt || 0) : Infinity, stale: !ready(s) }))
-      .filter((x) => x.stale || x.age > RULES.resyncMs)
+      .map((x) => ({ ...x, m1gap: C[x.s] && (!C[x.s].m1.length || Date.now() / 1000 - C[x.s].m1[0].time < 2 * BAR) }))
+      .filter((x) => x.stale || x.m1gap || x.age > RULES.resyncMs)
       .sort((a, b) => (b.stale - a.stale) || (b.age - a.age));
     for (const { s } of need) {
       try { await seedOne(s); delete failedAt[s]; }
@@ -125,7 +127,7 @@ function rollingSeries(s) {
   const wins = [];
   for (const ws of starts) {
     const ms = m1.filter((c) => c.time >= ws && c.time < ws + BAR);
-    if (ms.length < 5) return { series: null };
+    if (ms.length < 5) return { series: closedAligned, rolling: false }; // 1m gap (e.g. right after restart) → use closed 15m candles, trade now
     wins.push({ time: ws, open: ms[0].open, high: Math.max(...ms.map((x) => x.high)), low: Math.min(...ms.map((x) => x.low)), close: ms[ms.length - 1].close, volume: 0 });
   }
   const base = closedAligned.filter((c) => c.time + BAR <= starts[0]);
